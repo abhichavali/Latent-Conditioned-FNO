@@ -49,7 +49,12 @@ async function load(id, ic) {
   status(`loading ${id} · IC ${ic}…`);
   try {
     const spec = await getSpec(id);
-    const { data, shape: [T, C, ny, nx] } = await slice(`${BASE}/${id}/u.npy`, ic);
+    const url = `${BASE}/${id}/u.npy`;
+    if (!heads.has(url)) heads.set(url, npyHeader(await range(url, 0, 1023)));
+    const nic = heads.get(url).shape[0];
+    $('ic').max = nic - 1;
+    if (ic >= nic) { ic = nic - 1; $('ic').value = ic; $('icv').textContent = ic; }
+    const { data, shape: [T, C, ny, nx] } = await slice(url, ic);
     if (s !== session) return;
     const n = nx * ny, { shift, scale } = spec.norm;
     const fields = spec.fields.map((name, c) => ({ name, frames: [] }));
@@ -89,6 +94,7 @@ function show() {
     `tags   ${spec.tags.join(', ') || '—'}`,
     `frame  Δt ${fmt(spec.frame_dt)} = ${spec.substeps} × dt ${fmt(spec.dt)}`,
     `IC     #${ic} · ${smp.ic_family ?? '?'} · window from frame ${smp.start_frame ?? 0}`,
+    ...(spec.perm && spec.perm.some((p, i) => p !== i) ? [`labels permuted ${spec.perm.join(',')}`] : []),
     `range  ${fields.map(f => `${f.name} [${fmt(f.lo)}, ${fmt(f.hi)}]`).join('  ')}`,
   ].join('\n');
   const all = stat ? [...fields, stat] : fields;
