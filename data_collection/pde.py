@@ -27,9 +27,10 @@ from exponax.nonlin_fun import BaseNonlinearFun
 class _Op(sp.Function):
     nargs = 1
 
-    def _latex(self, p):
+    def _latex(self, p, exp=None):
         a = self.args[0]
-        return f"{self.sym} {p._print(a)}" if a.is_Symbol or isinstance(a, _Op) else rf"{self.sym}\left({p._print(a)}\right)"
+        s = f"{self.sym} {p._print(a)}" if a.is_Symbol or isinstance(a, _Op) else rf"{self.sym}\left({p._print(a)}\right)"
+        return rf"\left({s}\right)^{{{exp}}}" if exp else s
 
 
 class dx(_Op):
@@ -236,6 +237,7 @@ if __name__ == "__main__":  # self-checks against exact solutions
     assert abs(float(tr[0, -1].mean()) - 0.5) < 1e-5
 
     assert latex({"fields": ["u"], "rhs": {"u": "lap(u) + dx(u*u)"}})["u"] == r"\partial_x\left(u^{2}\right) + \nabla^2 u"
+    assert latex({"fields": ["u"], "rhs": {"u": "dx(u)**2"}})["u"] == r"\left(\partial_x u\right)^{2}"
     g = graph({"fields": ["u"], "rhs": {"u": "lap(u) + u*(1 - u)"}})
     assert [n["op"] for n in g["nodes"]].count("field") == 1 and g["nodes"][-1] == {"op": "dt", "i": 0}
     print("pde.py ok")

@@ -573,7 +573,9 @@ def ic_pool(keys, rows, M):
 
 # ---------------------------------------------------------------- max-entropy subset selection (GPU)
 def _features(x, cm):
-    """x (B, T, C, n, n) normalized trajectories, cm (C,) active-channel mask -> shift-invariant descriptors."""
+    """x (B, T, C, n, n) normalized trajectories, cm (C,) active-channel mask -> blocks of shift-invariant
+    descriptors.  Spectra are per-frame distributions under a sqrt (Hellinger) embedding, so distances stay
+    bounded: log spectra made near-single-mode ICs (stripes) look like extreme outliers and got over-picked."""
     B, T, C, n, _ = x.shape
     x = x * cm[None, None, :, None, None]
     kx, ky = _modes(n)
@@ -581,50 +583,58 @@ def _features(x, cm):
     frames = jnp.array([0, 1, 2, 4, 7, T - 1])
     xf = x[:, frames]
     P = jnp.abs(jnp.fft.rfft2(xf - xf.mean((-2, -1), keepdims=True))) ** 2
+    tot = P.sum((-2, -1))[..., None] + 1e-6 * n**4  # floor ~ a field with std 1e-3 of its IC amplitude
     edges = jnp.geomspace(1, n / 3 + 1, 17)
     rb = ((kk >= edges[:-1, None, None]) & (kk < edges[1:, None, None])).astype(x.dtype)
     ang = jnp.arctan2(ky * jnp.ones_like(kx), kx * jnp.ones_like(ky))  # in [-pi/2, pi/2]
-    sec = (jnp.floor((ang + jnp.pi / 2) / (jnp.pi / 4)).clip(0, 3) == jnp.arange(4)[:, None, None]) & (kk >= 1) & (kk < 16)
-    radial = jnp.log(jnp.einsum("btcij,kij->btck", P, rb) + 1e-6)
-    sectors = jnp.log(jnp.einsum("btcij,kij->btck", P, sec.astype(x.dtype)) + 1e-6)
-    std = jnp.log(x.std((-2, -1)) + 1e-4)
-    mean = x.mean((-2, -1))
-    rate = jnp.log(jnp.sqrt(((x[:, 1:] - x[:, :-1]) ** 2).mean((-2, -1))) + 1e-4)
-    return jnp.concatenate([radial.reshape(B, -1), sectors.reshape(B, -1), std.reshape(B, -1),
-                            mean.reshape(B, -1), rate.reshape(B, -1)], 1)
+    sec = (jnp.floor((ang + jnp.pi / 2) / (jnp.pi / 4)).clip(0, 3) == jnp.arange(4)[:, None, None]) & (kk >= 1)
+    radial = jnp.sqrt(jnp.einsum("btcij,kij->btck", P, rb) / tot)
+    sectors = jnp.sqrt(jnp.einsum("btcij,kij->btck", P, sec.astype(x.dtype)) / tot)
+    amp = jnp.concatenate([jnp.log(x.std((-2, -1)) + 1e-2), x.mean((-2, -1))], 1)
+    rate = jnp.log(jnp.sqrt(((x[:, 1:] - x[:, :-1]) ** 2).mean((-2, -1))) + 1e-2)
+    return [f.reshape(B, -1) for f in (radial, sectors, amp, rate)]
 
 
-def _greedy_logdet(Kmat, valid, k, noise):
-    """Greedy maximisation of log det(I + K_S / noise): the GP joint entropy of the chosen set.  Monotone
-    submodular, so greedy is within (1 - 1/e) of the best subset.  Incremental Cholesky (Chen et al. 2018)."""
+def _greedy_logdet(Kmat, valid, k, noise, group, gcap, late, early_cap):
+    """Greedy maximisation of log det(I + K_S / noise), the GP joint entropy of the chosen set (monotone submodular,
+    so greedy is within 1 - 1/e of the best subset; incremental Cholesky, Chen et al. 2018), under caps: at most
+    gcap picks per group (IC family) and at most early_cap from early windows.  Caps are dropped if infeasible."""
     L = Kmat / noise + jnp.eye(Kmat.shape[0])
     d0 = jnp.where(valid, jnp.diag(L), -jnp.inf)
+    G = len(FAM_NAMES)
 
     def body(i, st):
-        cis, d, sel = st
-        j = jnp.argmax(d)
+        cis, d, sel, cnt, early = st
+        blocked = (cnt[group] >= gcap) | (~late & (early >= early_cap))
+        dc = jnp.where(blocked, -jnp.inf, d)
+        j = jnp.argmax(jnp.where(dc.max() > -jnp.inf, dc, d))
         e = (L[j] - cis.T @ cis[:, j]) / jnp.sqrt(d[j])
-        return cis.at[i].set(e), (d - e**2).at[j].set(-jnp.inf), sel.at[i].set(j)
+        return (cis.at[i].set(e), (d - e**2).at[j].set(-jnp.inf), sel.at[i].set(j),
+                cnt.at[group[j]].add(1), early + (~late[j]).astype(jnp.int32))
 
-    st = (jnp.zeros((k, L.shape[0])), d0, jnp.zeros(k, jnp.int32))
+    st = (jnp.zeros((k, L.shape[0])), d0, jnp.zeros(k, jnp.int32), jnp.zeros(G, jnp.int32), jnp.int32(0))
     return jax.lax.fori_loop(0, k, body, st)[2]
 
 
 @partial(jax.jit, static_argnames=("k",))
-def select(traj, cm, valid, *, k, noise=1e-2):
-    """traj (E, M, T, C, n, n), cm (E, C), valid (E, M) -> (E, k) indices of a max-entropy subset per equation."""
+def select(traj, cm, valid, group, late, *, k, noise=1e-2, family_share=0.25, early_share=2 / 3):
+    """traj (E, M, T, C, n, n), cm (E, C), valid / group (IC family) / late (developed window) (E, M)
+    -> (E, k) indices of a capped max-entropy subset per equation."""
+    gcap, early_cap = math.ceil(family_share * k), math.ceil(early_share * k)
 
-    def one(x, cm, ok):
-        f = _features(x.astype(jnp.float32), cm)
-        okf = ok[:, None]
-        mu = jnp.sum(f * okf, 0) / jnp.maximum(ok.sum(), 1)
-        sd = jnp.sqrt(jnp.sum(((f - mu) * okf) ** 2, 0) / jnp.maximum(ok.sum(), 1))
-        z = jnp.where(okf, (f - mu) / (sd + 1e-3), 0.0)
+    def one(x, cm, ok, g, lt):
+        okf, cnt = ok[:, None], jnp.maximum(ok.sum(), 1)
+        zs = []
+        for f in _features(x.astype(jnp.float32), cm):  # each block gets unit total variance: equal say
+            mu = jnp.sum(f * okf, 0) / cnt
+            var = jnp.sum(((f - mu) * okf) ** 2) / cnt
+            zs.append(jnp.where(okf, (f - mu) / jnp.sqrt(var + 1e-12), 0.0))
+        z = jnp.concatenate(zs, 1)
         d2 = jnp.maximum(jnp.sum(z**2, 1)[:, None] + jnp.sum(z**2, 1)[None] - 2 * z @ z.T, 0)
         h = jnp.nanmedian(jnp.where(ok[:, None] & ok[None] & ~jnp.eye(len(ok), dtype=bool), d2, jnp.nan))
-        return _greedy_logdet(jnp.exp(-d2 / (h + 1e-6)), ok, k, noise)
+        return _greedy_logdet(jnp.exp(-d2 / (h + 1e-6)), ok, k, noise, g, gcap, lt, early_cap)
 
-    return jax.vmap(one)(traj, cm, valid)
+    return jax.vmap(one)(traj, cm, valid, group, late)
 
 
 if __name__ == "__main__":
@@ -646,6 +656,9 @@ if __name__ == "__main__":
     rows = jnp.asarray(np.stack([ic_arrays(e) for e in es]))
     x, fam = ic_pool(jax.random.split(jax.random.PRNGKey(0), 2), np.asarray(rows), M=64)
     assert x.shape == (2, 64, 3, N, N) and bool(jnp.isfinite(x).all())
-    sel = select(jnp.repeat(x[:, :, None], 11, 2)[:, :, :, :2], jnp.ones((2, 2)), jnp.ones((2, 64), bool), k=16)
+    late = jnp.tile(jnp.arange(64) >= 32, (2, 1))
+    sel = select(jnp.repeat(x[:, :, None], 11, 2)[:, :, :, :2], jnp.ones((2, 2)), jnp.ones((2, 64), bool), fam, late, k=16)
     assert all(len(set(map(int, s))) == 16 for s in sel), sel
+    for s, f, lt in zip(np.asarray(sel), np.asarray(fam), np.asarray(late)):  # caps hold: <= 4 per family, <= 11 early
+        assert max(np.bincount(f[s])) <= 4 and (~lt[s]).sum() <= 11, (f[s], lt[s])
     print("sample.py ok")

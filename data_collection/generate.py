@@ -172,7 +172,10 @@ def run_pool(b, idx, dt, S, keys, M):
     del A
     h, _, step, _, _ = stats(W, cm)
     valid = h.all(-1) & (step.mean(-1) > 1e-3)
-    sel = sample.select(W, cm, valid, k=KEEP)[:n]
+    P = W.shape[0]
+    famw = jnp.tile(jnp.concatenate([fam, jnp.repeat(fam[:1], P - n, 0)]), (1, 2))  # family of each candidate window
+    late = jnp.tile(jnp.arange(2 * M) >= M, (P, 1))
+    sel = sample.select(W, cm, valid, famw, late, k=KEEP)[:n]
     take = jax.vmap(lambda w, s: w[s])
     ics = sel % M
     return (np.asarray(take(W[:n], sel)), np.asarray(take(u0[:, :, -1], ics)), np.asarray(sel), np.asarray(take(fam, ics)),
