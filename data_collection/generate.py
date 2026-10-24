@@ -19,6 +19,7 @@ import json
 import math
 import os
 import queue
+import re
 import threading
 import time
 from collections import Counter
@@ -93,8 +94,10 @@ def gap(A, B, cm):
 
 
 def calibrate(b, u0):
-    """Per equation: accepted?, dt, substeps per frame, rejection reason."""
+    """Per equation: accepted?, dt, substeps per frame, rejection reason.  e["target"] = change per frame."""
     E = len(b.es)
+    tg = np.array([e.get("target", TARGET) for e in b.es])
+    tol = tg * TOL / TARGET
     dt = np.array([e["dt0"] for e in b.es], np.float64)
     S = np.ones(E, int)
     phase = np.zeros(E, int)  # 0 probe, 1 accuracy, 2 accepted, -1 rejected
@@ -111,8 +114,8 @@ def calibrate(b, u0):
             for j, i in enumerate(p):
                 rounds[i] += 1
                 okf = np.cumprod(ok[j]).astype(bool)
-                hit = [f for f in range(1, F) if med[j, f] >= TARGET and okf[f]]
-                if hit and hit[0] == 1 and med[j, 1] > 2 * TARGET:
+                hit = [f for f in range(1, F) if med[j, f] >= tg[i] and okf[f]]
+                if hit and hit[0] == 1 and med[j, 1] > 2 * tg[i]:
                     dt[i] /= 4  # a single step already moves too far
                 elif hit:
                     f = hit[0]
@@ -121,7 +124,7 @@ def calibrate(b, u0):
                     else:  # log-log interpolation of the change curve between probe frames
                         c0, c1 = math.log(CUM[f - 1]), math.log(CUM[f])
                         m0, m1 = math.log(max(med[j, f - 1], 1e-9)), math.log(med[j, f])
-                        S[i] = max(1, round(math.exp(c0 + (math.log(TARGET) - m0) / max(m1 - m0, 1e-9) * (c1 - c0))))
+                        S[i] = max(1, round(math.exp(c0 + (math.log(tg[i]) - m0) / max(m1 - m0, 1e-9) * (c1 - c0))))
                     phase[i] = 1
                 elif not okf.all():
                     dt[i] /= 4
@@ -143,11 +146,11 @@ def calibrate(b, u0):
             err = np.nan_to_num(np.median(err[:, :, 1:].max(-1), 1), nan=np.inf)
             h, ch, step, sstd, tail = (np.asarray(x)[: len(g)] for x in stats(A, cm))
             for j, i in enumerate(g):
-                if err[j] > TOL:
+                if err[j] > tol[i]:
                     dt[i], S[i] = dt[i] / 2, S[i] * 2
                     if S[i] > SMAX:
                         reject(i, "stiff")
-                elif err[j] < TOL / 8 and S[i] >= 2 and not coarse[i]:
+                elif err[j] < tol[i] / 8 and S[i] >= 2 and not coarse[i]:
                     coarse[i] = True
                     dt[i], S[i] = dt[i] * 2, S[i] // 2
                 elif not h[j].all():
@@ -163,18 +166,18 @@ def calibrate(b, u0):
     return phase == 2, dt, S, why
 
 
-def run_pool(b, idx, dt, S, keys, M):
+def run_pool(b, idx, dt, S, keys, M, nw):
     """IC pool for equations b[idx] -> selected windows (n, KEEP, F, nf, N, N) f16, static (n, KEEP, N, N), meta."""
     n = len(idx)
     u0, fam = sample.ic_pool(keys, b.rows[idx], M)
-    A, cm = roll(b, idx, dt, np.repeat(np.asarray(S)[:, None], 2 * (F - 1), 1), u0)  # 2F-1 frames
-    W = jnp.concatenate([A[:, :, :F], A[:, :, F - 1 :]], 1)  # candidate windows: [ic 0..M-1 @ t0, ic 0..M-1 @ t14]
+    A, cm = roll(b, idx, dt, np.repeat(np.asarray(S)[:, None], nw * (F - 1), 1), u0)  # nw consecutive windows
+    W = jnp.concatenate([A[:, :, w * (F - 1) : w * (F - 1) + F] for w in range(nw)], 1)  # [ic 0..M-1 @ window 0, ...]
     del A
     h, _, step, _, _ = stats(W, cm)
     valid = h.all(-1) & (step.mean(-1) > 1e-3)
     P = W.shape[0]
-    famw = jnp.tile(jnp.concatenate([fam, jnp.repeat(fam[:1], P - n, 0)]), (1, 2))  # family of each candidate window
-    late = jnp.tile(jnp.arange(2 * M) >= M, (P, 1))
+    famw = jnp.tile(jnp.concatenate([fam, jnp.repeat(fam[:1], P - n, 0)]), (1, nw))  # family of each candidate window
+    late = jnp.tile(jnp.arange(nw * M) >= M, (P, 1))
     sel = sample.select(W, cm, valid, famw, late, k=KEEP)[:n]
     take = jax.vmap(lambda w, s: w[s])
     ics = sel % M
@@ -191,6 +194,15 @@ def spec_of(e, eid, C, dt, S, b_shift, b_scale):
          "template": {"nf": nf, "coef": [[int(i), int(k), float(C[i, k])] for i, k in zip(*np.nonzero(C))]},
          "norm": {"shift": b_shift[:n].tolist(), "scale": b_scale[:n].tolist()},
          "layout": "u.npy float16 (ic, frame, field, y, x) = (u - shift) / scale; static.npy (ic, y, x) raw"}
+    p = e.get("perm", list(range(n)))
+    if p != list(range(n)):  # field j of the saved data is internal field p[j]; rename symbols to match
+        ren = {e["fields"][p[j]]: T.FIELDS[j] for j in range(n)}
+        sub = lambda t: re.sub(r"\b[uvw]\b", lambda m: ren.get(m.group(0), m.group(0)), t)
+        s["rhs"] = {ren[f]: sub(s["rhs"][f]) for f in e["fields"]}
+        s["ic"] = {ren[f]: s["ic"][f] for f in e["fields"]}
+        s["norm"] = {k: [v[i] for i in p] for k, v in s["norm"].items()}
+        s["fields"] = list(T.FIELDS[:n])
+    s["perm"], s["target_change"] = [int(i) for i in p], e.get("target", TARGET)
     s["latex"] = pde.latex(s)
     s["graph"] = pde.graph(s)
     return s
@@ -223,12 +235,18 @@ def main():
     ap.add_argument("--cand", type=int, default=256, help="candidate equations per calibration batch")
     ap.add_argument("--seed", type=int, default=0, help="different seeds give disjoint equation sets")
     ap.add_argument("--keep", type=int, default=KEEP, help="selected IC windows per equation")
+    ap.add_argument("--windows", type=int, default=2, help="consecutive 14-step windows simulated per IC")
+    ap.add_argument("--target", type=float, nargs=2, default=[TARGET, TARGET],
+                    help="log-uniform range of the per-frame change (sets each equation's frame interval)")
+    ap.add_argument("--permute", type=float, default=0.0, help="probability of shuffling field labels")
+    ap.add_argument("--id-offset", type=int, default=0, help="first equation id; lets several GPUs share --out")
     args = ap.parse_args()
     globals()["KEEP"] = args.keep
     os.makedirs(args.out, exist_ok=True)
-    state_f = os.path.join(args.out, "state.json")
+    state_f = os.path.join(args.out, f"state_{args.id_offset}.json" if args.id_offset else "state.json")
     st = json.load(open(state_f)) if os.path.exists(state_f) else {"next_cand": 0}
-    written = len([d for d in os.listdir(args.out) if d.startswith("eq_")])
+    ids = {int(d[3:]) for d in os.listdir(args.out) if d.startswith("eq_")}
+    written = len([i for i in ids if args.id_offset <= i < args.id_offset + args.n])
     q = queue.Queue(maxsize=8)
     th = threading.Thread(target=writer, args=(args.out, q), daemon=True)
     th.start()
@@ -239,7 +257,9 @@ def main():
         c0 = st["next_cand"]
         es = [sample.equation(np.random.default_rng([args.seed, c])) for c in range(c0, c0 + args.cand)]
         for e, c in zip(es, range(c0, c0 + args.cand)):
-            e["cand"] = c
+            rc = np.random.default_rng([args.seed, c, 1])
+            e["cand"], e["target"] = c, float(np.exp(rc.uniform(*np.log(args.target))))
+            e["perm"] = list(rc.permutation(e["n"]) if rc.random() < args.permute else range(e["n"]))
         st["next_cand"] = c0 + args.cand
         for nf in (2, 3):
             if written >= args.n:
@@ -259,18 +279,18 @@ def main():
             for k in range(0, len(idx), per):
                 g = idx[k : k + per]
                 pk = jax.vmap(lambda kk: jax.random.fold_in(kk, 1))(ekeys[g])
-                x, static, sel, fam, nvalid = run_pool(b, g, dt[g], S[g], pk, args.pool)
+                x, static, sel, fam, nvalid = run_pool(b, g, dt[g], S[g], pk, args.pool, args.windows)
                 for j, i in enumerate(g):
                     e = sub[i]
                     if nvalid[j] < KEEP:
                         why[i] = "pool"
                         continue
-                    eid = f"eq_{written:04d}"
+                    eid = f"eq_{args.id_offset + written:04d}"
                     spec = spec_of(e, eid, b.C[i], dt[i], S[i], b.shift[i], b.scale[i])
                     spec["samples"] = [{"ic": int(s % args.pool), "start_frame": int(s // args.pool) * (F - 1),
                                         "ic_family": sample.FAM_NAMES[int(f)]} for s, f in zip(sel[j], fam[j])]
                     spec["candidate"] = {"seed": args.seed, "index": e["cand"]}
-                    q.put((eid, spec, x[j, :, :, : e["n"]], static[j].astype(np.float16) if e["static"] else None))
+                    q.put((eid, spec, x[j][:, :, e["perm"]], static[j].astype(np.float16) if e["static"] else None))
                     written += 1
             t3 = time.time()
             rate = (written - n0) / max(t3 - t0, 1e-9)

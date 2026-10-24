@@ -73,7 +73,7 @@ def transport(r):
         if flux:
             add(e, "u", "X", -u * v), add(e, "u", "Y", -u * w), ic(e, "u", H, 0.15 * H)
             e["tags"].add("flux")
-        elif r.random() < 0.3:  # linear waves over a variable medium (bathymetry-like)
+        elif r.random() < 0.45:  # linear waves over a variable medium (bathymetry-like)
             add(e, "u", "X", -a * v), add(e, "u", "Y", -a * w), ic(e, "u", 0, 0.3 * H)
             e["static"] = {"mean": H, "amp": 0.4 * H}
             e["tags"].add("medium")
@@ -152,9 +152,9 @@ def transport(r):
     A, c = lu(r, 0.3, 1.5), lu(r, 0.05, 1)
     lin(e, "u", "dx", -c)
     add(e, "u", "X", -lu(r, 0.5, 2) * u * u / 2)
-    lin(e, "u", "dxlap", -A * (lu(r, 1.5, 4) * dx) ** 2)
+    lin(e, "u", "dxlap", -A * (lu(r, 1.5, 6) * dx) ** 2)
     if r.random() < 0.5:
-        lin(e, "u", "dylap", -A * (lu(r, 1.5, 4) * dx) ** 2)
+        lin(e, "u", "dylap", -A * (lu(r, 1.5, 6) * dx) ** 2)
     diff(e, "u", lu(r, 0.2, 1) * A * dx)
     ic(e, "u", 0, A)
     if n == 2:
@@ -248,8 +248,8 @@ def excitable(r):
         ic(e, "u", 0.05, 0.8, "patch"), ic(e, "v", 0.05, 0.5, "patch")
         rate, Dv_ratio = 1.0, lu(r, 0.2, 5)
 
-    Du = (lu(r, 1.5, 4) * dx) ** 2 * rate
-    if r.random() < 0.25:
+    Du = (lu(r, 1.5, 6) * dx) ** 2 * rate
+    if r.random() < 0.4:
         e["terms"]["u"]["D"][("a", "u")] = 1.0
         e["static"] = {"mean": Du, "amp": 0.6 * Du}
         e["tags"].add("medium")
@@ -287,7 +287,7 @@ def pattern(r):
     kind = str(r.choice(list(PAT_P), p=list(PAT_P.values())))
     if kind == "ks":
         L = lu(r, 30, 200)
-        lam = L / lu(r, 4, 12)
+        lam = L / lu(r, 2.5, 14)
         ell2 = (lam / (2 * math.pi * math.sqrt(2))) ** 2
         e = new(r, "pattern/kuramoto-sivashinsky", 1, L)
         diff(e, "u", -1.0), lin(e, "u", "bih", -ell2), add(e, "u", "P", -r.uniform(0.3, 1) / 2 * gu)
@@ -295,7 +295,7 @@ def pattern(r):
         e["dt0"] = 0.1 * 4 * ell2
     elif kind == "sh":
         L = lu(r, 20, 200)
-        k0 = 2 * math.pi / (L / lu(r, 4, 15))
+        k0 = 2 * math.pi / (L / lu(r, 3, 16))
         e = new(r, "pattern/swift-hohenberg", 1, L)
         lin(e, "u", "1", r.uniform(0.05, 0.6) - 1), diff(e, "u", -2 / k0**2), lin(e, "u", "bih", -1 / k0**4)
         add(e, "u", "P", r.uniform(0, 1.5) * u**2 - u**3)
@@ -304,7 +304,7 @@ def pattern(r):
     elif kind == "ch":
         L = lu(r, 10, 100)
         dx = L / N
-        gam = (lu(r, 1.5, 3) * dx) ** 2
+        gam = (lu(r, 1.5, 5) * dx) ** 2
         e = new(r, "pattern/cahn-hilliard", 1, L)
         add(e, "u", "Q", u**3), diff(e, "u", -1.0), lin(e, "u", "bih", -gam)
         ic(e, "u", r.uniform(-0.4, 0.4), lu(r, 0.05, 0.5), "signed")
@@ -312,16 +312,16 @@ def pattern(r):
     elif kind == "ac":
         L = lu(r, 10, 100)
         e = new(r, "pattern/allen-cahn", 1, L)
-        diff(e, "u", (lu(r, 1.5, 4) * L / N) ** 2), lin(e, "u", "1", 1.0), add(e, "u", "P", -u**3)
+        diff(e, "u", (lu(r, 1.5, 6) * L / N) ** 2), lin(e, "u", "1", 1.0), add(e, "u", "P", -u**3)
         ic(e, "u", r.uniform(-0.3, 0.3), lu(r, 0.1, 1), "signed")
     elif kind == "fisher":
         L = lu(r, 10, 100)
         e = new(r, "pattern/fisher-kpp", 1, L)
-        diff(e, "u", (lu(r, 1.5, 4) * L / N) ** 2), lin(e, "u", "1", 1.0), add(e, "u", "P", -u**2)
+        diff(e, "u", (lu(r, 1.5, 6) * L / N) ** 2), lin(e, "u", "1", 1.0), add(e, "u", "P", -u**2)
         ic(e, "u", 0, 1, "patch")
     elif kind == "cgl":
         L = lu(r, 20, 200)
-        ell2 = (lu(r, 3, 6) * L / N) ** 2
+        ell2 = (lu(r, 2.5, 8) * L / N) ** 2
         al, be = r.uniform(-1, 1), r.uniform(-2, 2)
         e = new(r, "pattern/complex-ginzburg-landau", 2, L)
         for f, g, s in (("u", v, 1), ("v", u, -1)):
@@ -331,7 +331,7 @@ def pattern(r):
         e["dt0"] = 0.05
     else:
         L = lu(r, 10, 100)
-        Du = (lu(r, 1.5, 3) * L / N) ** 2
+        Du = (lu(r, 1.5, 5) * L / N) ** 2
         e = new(r, "pattern/keller-segel", 2, L)
         diff(e, "u", Du)
         e["terms"]["u"]["D"][("u", "v")] = -Du * lu(r, 2, 20)
@@ -359,11 +359,26 @@ def _p_slots(e):
 
 
 def mutate(r, e, scale):
-    for _ in range(int(r.choice([0, 1, 2], p=[0.4, 0.4, 0.2]))):
-        f = str(r.choice(e["fields"]))
-        m = str(r.choice(_p_slots(e))).format(f=f)
-        add(e, f, "P", lu(r, 0.02, 0.2) * scale * r.choice([-1, 1]) * sp.sympify(m, locals=SYM))
-        e["tags"].add(f"+{f}:{m}")
+    """0-4 extra library terms of any kind (pointwise, flux, cross-diffusion, div(f grad g), linear operator) on
+    random fields.  Sized off the grid (dx) and the family's rate so they perturb the dynamics, not replace them."""
+    dx, F = e["L"] / N, e["fields"]
+    for _ in range(int(r.choice(5, p=[0.15, 0.3, 0.3, 0.15, 0.1]))):
+        f, g = str(r.choice(F)), str(r.choice(F))
+        c = lu(r, 0.02, 0.3) * scale * r.choice([-1, 1])
+        kind = str(r.choice(["P", "X", "Q", "D", "L"], p=[0.55, 0.15, 0.1, 0.05, 0.15]))
+        if kind == "P":
+            add(e, f, "P", c * sp.sympify(str(r.choice(_p_slots(e))).format(f=f), locals=SYM))
+        elif kind == "X":  # flux of a degree <= 2 monomial along x or y
+            m = SYM[g] * (SYM[str(r.choice(F))] if r.random() < 0.5 else 1)
+            add(e, f, str(r.choice(["X", "Y"])), c * dx * m)
+        elif kind == "Q":
+            add(e, f, "Q", c * dx**2 * SYM[g])
+        elif kind == "D":
+            e["terms"][f]["D"][(f, g)] = e["terms"][f]["D"].get((f, g), 0.0) + c * dx**2
+        else:  # advection, dispersion or hyperdiffusion
+            op = str(r.choice(["dx", "dy", "dxlap", "dylap", "bih"]))
+            lin(e, f, op, -abs(c) * dx**4 if op == "bih" else c * dx ** (1 if len(op) == 2 else 3))
+        e["tags"].add(f"+{f}:{kind}")
     return e
 
 
@@ -376,7 +391,7 @@ def free(r):
         e["static"] = {"mean": 1.0, "amp": 0.5}
     vmax = 0.0
     for f in e["fields"]:
-        nu = (lu(r, 1.5, 4) * dx) ** 2
+        nu = (lu(r, 1.5, 6) * dx) ** 2
         diff(e, f, nu), lin(e, f, "1", -lu(r, 0.05, 0.5)), add(e, f, "P", -lu(r, 0.1, 1) * SYM[f] ** 3)
         ic(e, f, 0, lu(r, 0.3, 1))
         for _ in range(int(r.integers(2, 6))):
@@ -397,7 +412,7 @@ def free(r):
     return e
 
 
-FAMILIES = {"transport": (transport, 0.35), "excitable": (excitable, 0.35), "pattern": (pattern, 0.2), "free": (free, 0.1)}
+FAMILIES = {"transport": (transport, 0.3), "excitable": (excitable, 0.3), "pattern": (pattern, 0.2), "free": (free, 0.2)}
 
 
 def holdout(e):
@@ -529,7 +544,7 @@ def _one_ic(key, rows, n):
     pats = jnp.where(wake[:, None, None], jnp.roll(pats[0], (sh[0], sh[1]), (0, 1))[None], pats)
     pats = jax.vmap(_unit)(pats)
     mean, amp, mode = rows[:, 0], rows[:, 1], rows[:, 2]
-    scale = U01(k[3], (C,)) * 0.9 + 0.3
+    scale = U01(k[3], (C,)) * 1.3 + 0.2
     rest = jax.random.bernoulli(k[4], 0.25, (C,)) & (jnp.arange(C) > 0)
     kp = jax.random.split(k[5], 3)
     th, kap = U01(kp[0], (C,)) * 2.5 - 1.0, U01(kp[1], (C,)) * 6 + 2
