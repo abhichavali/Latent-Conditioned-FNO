@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDE Dataset Viewer</title>
+<link rel="stylesheet" href="../common.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+  :root { --accent: #9b8cff; }
+  #stage { position: fixed; top: 104px; left: 24px; right: 284px; bottom: 86px; display: flex; flex-direction: column; gap: 14px; }
+  #eqn { padding: 10px 14px; overflow: auto; max-height: 34%; flex: none; font-size: 15px; }
+  #eqn .katex-display { margin: 4px 0; text-align: left; }
+  #eqn .katex-display > .katex { text-align: left; }
+  #fields { flex: 1; min-height: 0; display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: center; }
+  #fields figure { margin: 0; display: flex; flex-direction: column; gap: 6px; height: 100%; max-height: 100%; aspect-ratio: 1 / 1.08; min-width: 0;
+    flex: 0 1 auto; max-width: calc((100% - 32px) / var(--cols, 1)); }
+  #fields canvas { width: 100%; aspect-ratio: 1; border-radius: 8px; border: 1px solid var(--line); background: #000; image-rendering: auto; }
+  #fields canvas.px { image-rendering: pixelated; }
+  #fields figcaption { font: 11px var(--mono); color: var(--muted); display: flex; justify-content: space-between; gap: 8px; white-space: nowrap; }
+  #fields figcaption b { color: var(--ink); font-weight: 600; }
+  #panel { width: 248px; max-height: calc(100vh - 40px); overflow: auto; }
+  #panel input[type=search] { width: 100%; background: rgba(255,255,255,0.06); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 7px; padding: 6px 8px; font: inherit; margin-top: 12px; }
+  #eqs { width: 100%; margin-top: 8px; background: rgba(255,255,255,0.04); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 7px; font: 11px var(--mono); padding: 4px; }
+  #eqs option { padding: 2px 4px; }
+  #panel button { margin-top: 12px; width: 100%; padding: 7px; border-radius: 7px; border: 1px solid var(--line);
+    background: rgba(255,255,255,0.08); color: var(--ink); font: inherit; cursor: pointer; }
+  #panel button:focus-visible, #panel input:focus-visible, #panel select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  #meta { white-space: pre-wrap; font-family: var(--mono); }
+  @media (max-width: 720px) {
+    #stage { right: 24px; top: 96px; }
+    #panel { top: auto; bottom: 86px; right: 16px; left: 16px; width: auto; max-height: 40vh; }
+  }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "katex": "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.mjs"
+} }
+</script>
+</head>
+<body>
+<header>
+  <div class="kicker" id="family">Training set</div>
+  <h1 id="title">PDE dataset</h1>
+  <div class="sub"><span id="dims"></span> · <span id="status">loading…</span></div>
+</header>
+
+<main id="stage">
+  <section id="eqn" class="glass" aria-label="Equations"></section>
+  <section id="fields" aria-label="Fields"></section>
+</main>
+
+<details id="panel" class="glass" open>
+  <summary>Sample</summary>
+  <input type="search" id="filter" placeholder="Filter: id, family, tag…" aria-label="Filter equations">
+  <select id="eqs" size="11" aria-label="Equation"></select>
+  <label>Initial condition <output id="icv">0</output><input type="range" id="ic" min="0" max="72" step="1" value="0"></label>
+  <button id="rand">Random sample</button>
+  <label>Colormap
+    <select id="cmap"><option value="turbo">Turbo</option><option value="inferno">Inferno</option><option value="berlin">Berlin (diverging)</option></select>
+  </label>
+  <label>Colour range
+    <select id="range"><option value="ic">Fixed over the rollout</option><option value="frame">Per frame</option></select>
+  </label>
+  <label>Pixels
+    <select id="interp"><option value="smooth">Smooth</option><option value="px">Nearest</option></select>
+  </label>
+  <p class="hint" id="meta"></p>
+</details>
+
+<div id="timeline" class="glass">
+  <button id="play" aria-label="Play">▶</button>
+  <span id="time">—</span>
+  <div class="track"><canvas id="spark" title="spatial std of the first field"></canvas><input id="scrub" type="range" min="0" max="0" step="any" value="0" aria-label="Time"></div>
+  <select id="speed" aria-label="Playback speed"><option value="1">1 fps</option><option value="3" selected>3 fps</option><option value="6">6 fps</option><option value="12">12 fps</option></select>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

@@ -2,24 +2,46 @@
 import * as THREE from 'three';
 
 // ---------- .npy ----------
-export function parseNpy(buf) {
+// Header only (the first ~128 bytes suffice) -> { descr, shape, offset }; lets callers Range-fetch one slice.
+export function npyHeader(buf) {
   const u8 = new Uint8Array(buf);
   if (u8[0] !== 0x93 || new TextDecoder().decode(u8.subarray(1, 6)) !== 'NUMPY') throw new Error('not a .npy file');
   const dv = new DataView(buf);
   const v1 = u8[6] === 1;
   const hlen = v1 ? dv.getUint16(8, true) : dv.getUint32(8, true);
-  const off = (v1 ? 10 : 12) + hlen;
-  const header = new TextDecoder().decode(u8.subarray(v1 ? 10 : 12, off));
-  const descr = header.match(/'descr':\s*'([^']+)'/)[1];
+  const offset = (v1 ? 10 : 12) + hlen;
+  const header = new TextDecoder().decode(u8.subarray(v1 ? 10 : 12, offset));
   if (/'fortran_order':\s*True/.test(header)) throw new Error('fortran_order arrays not supported, use np.ascontiguousarray');
-  let shape = header.match(/'shape':\s*\(([^)]*)\)/)[1].split(',').filter(s => s.trim()).map(Number);
+  const descr = header.match(/'descr':\s*'([^']+)'/)[1];
+  const shape = header.match(/'shape':\s*\(([^)]*)\)/)[1].split(',').filter(s => s.trim()).map(Number);
+  return { descr, shape, offset };
+}
+
+let H2F;
+// float16 bits -> Float32Array (table lookup)
+export function halfToFloat(u16) {
+  if (!H2F) {
+    H2F = new Float32Array(65536);
+    for (let h = 0; h < 65536; h++) {
+      const s = h & 0x8000 ? -1 : 1, e = (h >> 10) & 31, f = h & 1023;
+      H2F[h] = e === 0 ? s * f * 2 ** -24 : e === 31 ? (f ? NaN : s * Infinity) : s * (1 + f / 1024) * 2 ** (e - 15);
+    }
+  }
+  const out = new Float32Array(u16.length);
+  for (let i = 0; i < u16.length; i++) out[i] = H2F[u16[i]];
+  return out;
+}
+
+export function parseNpy(buf) {
+  const { descr, offset: off, shape: raw } = npyHeader(buf);
   // torch-style (T,1,Ny,Nx) -> (T,Ny,Nx)
-  shape = [shape[0], ...shape.slice(1).filter(d => d !== 1)];
+  const shape = [raw[0], ...raw.slice(1).filter(d => d !== 1)];
+  const n = shape.reduce((a, b) => a * b, 1);
+  if (/^[<|=]f2$/.test(descr)) return { data: halfToFloat(new Uint16Array(buf.slice(off, off + 2 * n))), shape };
   const Ctor = { '<f4': Float32Array, '<f8': Float64Array, '|f4': Float32Array, '=f4': Float32Array, '=f8': Float64Array }[descr];
   if (!Ctor) throw new Error(`unsupported dtype ${descr}; save as float32`);
-  const n = shape.reduce((a, b) => a * b, 1);
-  const raw = new Ctor(buf.slice(off, off + n * Ctor.BYTES_PER_ELEMENT));
-  return { data: raw instanceof Float32Array ? raw : Float32Array.from(raw), shape };
+  const data = new Ctor(buf.slice(off, off + n * Ctor.BYTES_PER_ELEMENT));
+  return { data: data instanceof Float32Array ? data : Float32Array.from(data), shape };
 }
 
 // (T, Ny, Nx) array -> list of per-frame views (no copy)
