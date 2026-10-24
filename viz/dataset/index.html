@@ -16,7 +16,6 @@
   #fields figure { margin: 0; display: flex; flex-direction: column; gap: 6px; height: 100%; max-height: 100%; aspect-ratio: 1 / 1.08; min-width: 0;
     flex: 0 1 auto; max-width: calc((100% - 32px) / var(--cols, 1)); }
   #fields canvas { width: 100%; aspect-ratio: 1; border-radius: 8px; border: 1px solid var(--line); background: #000; image-rendering: auto; }
-  #fields canvas.px { image-rendering: pixelated; }
   #fields figcaption { font: 11px var(--mono); color: var(--muted); display: flex; justify-content: space-between; gap: 8px; white-space: nowrap; }
   #fields figcaption b { color: var(--ink); font-weight: 600; }
   #panel { width: 248px; max-height: calc(100vh - 40px); overflow: auto; }
@@ -25,10 +24,7 @@
   #eqs { width: 100%; margin-top: 8px; background: rgba(255,255,255,0.04); color: var(--ink); border: 1px solid var(--line);
     border-radius: 7px; font: 11px var(--mono); padding: 4px; }
   #eqs option { padding: 2px 4px; }
-  #panel button { margin-top: 12px; width: 100%; padding: 7px; border-radius: 7px; border: 1px solid var(--line);
-    background: rgba(255,255,255,0.08); color: var(--ink); font: inherit; cursor: pointer; }
-  #panel button:focus-visible, #panel input:focus-visible, #panel select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  #meta { white-space: pre-wrap; font-family: var(--mono); }
+  #panel input:focus-visible, #panel select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   @media (max-width: 720px) {
     #stage { right: 24px; top: 96px; }
     #panel { top: auto; bottom: 86px; right: 16px; left: 16px; width: auto; max-height: 40vh; }
@@ -58,17 +54,6 @@
   <input type="search" id="filter" placeholder="Filter: id, family, tag…" aria-label="Filter equations">
   <select id="eqs" size="11" aria-label="Equation"></select>
   <label>Initial condition <output id="icv">0</output><input type="range" id="ic" min="0" max="0" step="1" value="0"></label>
-  <button id="rand">Random sample</button>
-  <label>Colormap
-    <select id="cmap"><option value="turbo">Turbo</option><option value="inferno">Inferno</option><option value="berlin">Berlin (diverging)</option></select>
-  </label>
-  <label>Colour range
-    <select id="range"><option value="ic">Fixed over the rollout</option><option value="frame">Per frame</option></select>
-  </label>
-  <label>Pixels
-    <select id="interp"><option value="smooth">Smooth</option><option value="px">Nearest</option></select>
-  </label>
-  <p class="hint" id="meta"></p>
 </details>
 
 <div id="timeline" class="glass">

@@ -11,7 +11,8 @@ const player = new Player();
 player.fps = +$('speed').value;
 player.playing = false;
 
-let index = [], cur = null, figs = [], lut = makeLUT(CMAPS.turbo), session = 0;
+let index = [], cur = null, figs = [], session = 0;
+const lut = makeLUT(CMAPS.turbo);
 const specs = new Map(), heads = new Map();
 
 function makeLUT(stops) {
@@ -88,21 +89,14 @@ function show() {
   const { spec, fields, stat, nx, ny, T, ic } = cur, smp = spec.samples?.[ic] ?? {};
   $('title').textContent = spec.id;
   $('family').textContent = spec.family;
-  $('dims').textContent = `${nx}×${ny} · L = ${fmt(spec.L)} · ${spec.fields.length} field${spec.fields.length > 1 ? 's' : ''}`;
+  const perm = spec.perm?.some((p, i) => p !== i) ? ` · labels ${spec.perm.join(',')}` : '';
+  $('dims').textContent = `${nx}×${ny} · L = ${fmt(spec.L)} · IC ${smp.ic_family ?? '?'}${perm}`;
   $('eqn').innerHTML = spec.fields.map(f => katex.renderToString(`\\partial_t ${f} = ${spec.latex[f]}`, { displayMode: true, throwOnError: false })).join('');
-  $('meta').textContent = [
-    `tags   ${spec.tags.join(', ') || '—'}`,
-    `frame  Δt ${fmt(spec.frame_dt)} = ${spec.substeps} × dt ${fmt(spec.dt)}`,
-    `IC     #${ic} · ${smp.ic_family ?? '?'} · window from frame ${smp.start_frame ?? 0}`,
-    ...(spec.perm && spec.perm.some((p, i) => p !== i) ? [`labels permuted ${spec.perm.join(',')}`] : []),
-    `range  ${fields.map(f => `${f.name} [${fmt(f.lo)}, ${fmt(f.hi)}]`).join('  ')}`,
-  ].join('\n');
   const all = stat ? [...fields, stat] : fields;
   $('fields').style.setProperty('--cols', all.length);
   $('fields').replaceChildren(...all.map(f => {
     const fig = document.createElement('figure'), cv = document.createElement('canvas'), cap = document.createElement('figcaption');
     cv.width = nx; cv.height = ny;
-    cv.className = $('interp').value === 'px' ? 'px' : '';
     cap.innerHTML = `<b>${f.name}</b><span></span>`;
     cv.onmousemove = e => {
       const r = cv.getBoundingClientRect(), i = Math.floor(((e.clientX - r.left) / r.width) * nx), j = Math.floor(((e.clientY - r.top) / r.height) * ny);
@@ -132,16 +126,9 @@ function show() {
 function draw() {
   if (!cur) return;
   const t = Math.min(player.t, cur.T - 1), i = Math.floor(t), j = Math.min(i + 1, cur.T - 1), al = t - i;
-  const perFrame = $('range').value === 'frame', diverging = $('cmap').value === 'berlin';
   for (const { f, ctx, img } of figs) {
     const A = f.frames[Math.min(i, f.frames.length - 1)], B = f.frames[Math.min(j, f.frames.length - 1)], px = img.data;
-    let lo = f.lo, hi = f.hi;
-    if (perFrame && f.frames.length > 1) {
-      lo = Infinity; hi = -Infinity;
-      for (let k = 0; k < A.length; k++) { const v = A[k] + (B[k] - A[k]) * al; if (v < lo) lo = v; if (v > hi) hi = v; }
-    }
-    if (diverging) { const m = Math.max(Math.abs(lo), Math.abs(hi)); lo = -m; hi = m; }
-    const sc = 255 / (hi - lo || 1);
+    const lo = f.lo, sc = 255 / (f.hi - lo || 1); // colour range fixed over the rollout
     for (let k = 0; k < A.length; k++) {
       const v = A[k] + (B[k] - A[k]) * al, c = Math.max(0, Math.min(255, ((v - lo) * sc) | 0)) * 3;
       px[k * 4] = lut[c]; px[k * 4 + 1] = lut[c + 1]; px[k * 4 + 2] = lut[c + 2]; px[k * 4 + 3] = 255;
@@ -169,12 +156,6 @@ $('filter').oninput = fillList;
 $('eqs').onchange = () => load($('eqs').value, +$('ic').value);
 $('ic').oninput = () => { $('icv').textContent = $('ic').value; };
 $('ic').onchange = () => cur && load(cur.id, +$('ic').value);
-$('rand').onclick = () => {
-  const e = index[Math.floor(Math.random() * index.length)], ic = Math.floor(Math.random() * (+$('ic').max + 1));
-  $('ic').value = ic; $('icv').textContent = ic; load(e.id, ic);
-};
-$('cmap').onchange = () => { lut = makeLUT(CMAPS[$('cmap').value]); };
-$('interp').onchange = () => figs.forEach(f => f.firstChild.classList.toggle('px', $('interp').value === 'px'));
 
 (async () => {
   try {
