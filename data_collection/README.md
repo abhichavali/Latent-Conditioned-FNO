@@ -34,7 +34,8 @@ root per field; edges are `[child, parent, arg position]` (position matters only
 - `static.npy` — float16 `(73, 128, 128)`, raw, when the equation has a static field
 
 ```sh
-python generate.py --out /workspace/pdegen/out                    # resumable
+python generate.py --out /workspace/pdegen/out --pool 512                          # 1024 eqs x 73 ICs, resumable
+python generate.py --out /workspace/pdegen/out --n 4096 --keep 18 --pool 128 --seed 1   # 4096 eqs x 18 ICs, disjoint
 python ../viz/dataset/serve.py --data /workspace/pdegen/out       # viewer, then: ssh -N -L 8000:localhost:8000 pdebox
 ```
 

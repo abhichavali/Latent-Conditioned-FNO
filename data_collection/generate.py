@@ -221,8 +221,10 @@ def main():
     ap.add_argument("--n", type=int, default=1024)
     ap.add_argument("--pool", type=int, default=128, help="ICs per equation; candidate windows = 2 * pool")
     ap.add_argument("--cand", type=int, default=256, help="candidate equations per calibration batch")
-    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--seed", type=int, default=0, help="different seeds give disjoint equation sets")
+    ap.add_argument("--keep", type=int, default=KEEP, help="selected IC windows per equation")
     args = ap.parse_args()
+    globals()["KEEP"] = args.keep
     os.makedirs(args.out, exist_ok=True)
     state_f = os.path.join(args.out, "state.json")
     st = json.load(open(state_f)) if os.path.exists(state_f) else {"next_cand": 0}
