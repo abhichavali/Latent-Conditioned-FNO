@@ -1,0 +1,8 @@
+* PDE Foundation Model
+A PDE Foundation Model. Provides an FNO conditioned by a latent prior, trained on 1028 completely related equation graphs. Uses Bayesian Optimal Experimental Design to spend a fixed simulation budget.
+
+** Demo
+Two applications, visually created:
+
+1) Shallow Water Equations 
+2) Aliev Panfilov Equations
