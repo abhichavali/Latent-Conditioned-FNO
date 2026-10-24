@@ -24,7 +24,27 @@ import jax.numpy as jnp
 import sympy as sp
 from exponax.nonlin_fun import BaseNonlinearFun
 
-OPS = {n: sp.Function(n) for n in ("dx", "dy", "lap")}
+class _Op(sp.Function):
+    nargs = 1
+
+    def _latex(self, p):
+        a = self.args[0]
+        return f"{self.sym} {p._print(a)}" if a.is_Symbol or isinstance(a, _Op) else rf"{self.sym}\left({p._print(a)}\right)"
+
+
+class dx(_Op):
+    sym = r"\partial_x"
+
+
+class dy(_Op):
+    sym = r"\partial_y"
+
+
+class lap(_Op):
+    sym = r"\nabla^2"
+
+
+OPS = {"dx": dx, "dy": dy, "lap": lap}
 FUNCS = {"sin": jnp.sin, "cos": jnp.cos, "exp": jnp.exp, "tanh": jnp.tanh, "log": jnp.log, "Abs": jnp.abs}
 
 
@@ -215,6 +235,7 @@ if __name__ == "__main__":  # self-checks against exact solutions
     tr = simulate(s, jnp.sin(X)[None, None] + 0.5)
     assert abs(float(tr[0, -1].mean()) - 0.5) < 1e-5
 
+    assert latex({"fields": ["u"], "rhs": {"u": "lap(u) + dx(u*u)"}})["u"] == r"\partial_x\left(u^{2}\right) + \nabla^2 u"
     g = graph({"fields": ["u"], "rhs": {"u": "lap(u) + u*(1 - u)"}})
     assert [n["op"] for n in g["nodes"]].count("field") == 1 and g["nodes"][-1] == {"op": "dt", "i": 0}
     print("pde.py ok")
