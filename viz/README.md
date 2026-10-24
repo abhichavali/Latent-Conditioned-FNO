@@ -53,7 +53,9 @@ Each page exposes `window.viz = { engine, player, start, push }`. A solver runni
 timeline grows as frames arrive. Engines themselves only take `setFrames(frameA, frameB, alpha)`
 and interpolate between the two on the GPU.
 
-Any view setting can be deep-linked, e.g. `?mode=eta&sun=0.6&t=120` (`t` = frame index, pauses).
+There are no on-screen view controls for now; set view options in the URL, e.g. `?mode=eta&sun=0.6&t=120`
+(`t` = frame index, pauses). Tsunami: `vexag wexag sun clarity foam mode autorotate`; heart:
+`cmap glow front contract geometry autorotate` (defaults in each engine's `params`).
 Keys: space play/pause, ←/→ step.
 
 ## Files

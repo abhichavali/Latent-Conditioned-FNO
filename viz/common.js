@@ -200,19 +200,12 @@ export class Player {
   }
 }
 
-// Wire a <input type=range data-k="name"> panel to a params object; calls onChange(name, value).
-export function bindPanel(params, onChange) {
-  for (const el of document.querySelectorAll('[data-k]')) {
-    const k = el.dataset.k, out = el.parentElement.querySelector('output');
-    const show = () => out && (out.textContent = el.type === 'checkbox' ? '' : (+el.value).toFixed(el.step < 1 ? 2 : 0));
-    if (el.type === 'checkbox') el.checked = params[k]; else el.value = params[k];
-    show();
-    el.addEventListener('input', () => {
-      params[k] = el.type === 'checkbox' ? el.checked : el.tagName === 'SELECT' ? el.value : +el.value;
-      show();
-      onChange(k, params[k]);
-    });
-  }
+// ?k=v view overrides for keys already in params, parsed to the default's type (no on-screen controls for now)
+export function urlParams(params) {
+  const out = {};
+  for (const [k, v] of new URLSearchParams(location.search)) if (k in params)
+    out[k] = typeof params[k] === 'number' ? +v : typeof params[k] === 'boolean' ? v !== '0' && v !== 'false' : v;
+  return out;
 }
 
 export function status(msg, isError = false) {

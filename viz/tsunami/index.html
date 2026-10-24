@@ -22,19 +22,6 @@
   <div class="sub"><span id="dims"></span> · <span id="status">loading…</span></div>
 </header>
 
-<details id="panel" class="glass" open>
-  <summary>View</summary>
-  <label>Shading
-    <select data-k="mode"><option value="real">Photoreal</option><option value="eta">Surface elevation η</option></select>
-  </label>
-  <label>Vertical exaggeration <output></output><input type="range" data-k="vexag" min="1" max="20" step="0.1"></label>
-  <label>Wave exaggeration (offshore) <output></output><input type="range" data-k="wexag" min="1" max="20" step="0.1"></label>
-  <label>Sun <output></output><input type="range" data-k="sun" min="0" max="1" step="0.01"></label>
-  <label>Water clarity <output></output><input type="range" data-k="clarity" min="0.1" max="3" step="0.01"></label>
-  <label>Foam <output></output><input type="range" data-k="foam" min="0" max="2" step="0.01"></label>
-  <label class="check"><input type="checkbox" data-k="autorotate"> Auto-rotate</label>
-  <p class="hint">Drop <b>h.npy</b> (T, Ny, Nx) water depth + <b>b.npy</b> (Ny, Nx) bed elevation [+ meta.json], or open with <code>?data=dir/</code>.</p>
-</details>
 
 <div id="timeline" class="glass">
   <button id="play" aria-label="Pause">❚❚</button>
@@ -47,32 +34,26 @@
 <script type="module">
 import { TsunamiEngine } from './engine.js';
 import { tsunamiDemo } from './demo.js';
-import { Player, loadFromUrl, onDrop, splitFrames, bindPanel, status } from '../common.js';
+import { Player, loadFromUrl, onDrop, splitFrames, urlParams, status } from '../common.js';
 
 const engine = new TsunamiEngine(document.getElementById('view'));
 const player = new Player();
 let bed, etaMax = 0, session = 0;
 engine.onFrame = sec => { player.advance(sec); const s = player.sample(); if (s) engine.setFrames(...s); };
-bindPanel(engine.params, k => (k === 'sun' ? engine.updateSun() : engine.applyParams()));
 
-const setParam = (k, v) => { const el = document.querySelector(`[data-k=${k}]`); el.value = v; el.dispatchEvent(new Event('input')); };
 const km = m => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m.toFixed(0)} m`);
 
 function start(b, nx, ny, meta = {}) {
   bed = b; etaMax = 0;
   engine.setBathymetry(b, nx, ny, meta);
-  document.querySelector('[data-k=vexag]').max = Math.ceil(engine.autoVexag * 4);
-  setParam('vexag', meta.vexag ?? +engine.autoVexag.toFixed(1));
-  setParam('wexag', meta.wexag ?? 1);
+  // view: data defaults, then ?vexag=8&sun=0.6&mode=eta overrides
+  Object.assign(engine.params, { vexag: meta.vexag ?? engine.autoVexag, wexag: meta.wexag ?? 1 }, urlParams(engine.params));
+  engine.applyParams();
+  engine.updateSun();
   player.reset(meta.dt ?? 1, meta.time_unit ?? 's');
   document.querySelector('h1').textContent = meta.title ?? 'Shallow water';
   document.getElementById('dims').textContent = `${nx}×${ny} · ${km(meta.lx ?? nx)} × ${km(meta.ly ?? ny)}`;
-  // deep-link any view param, e.g. ?sun=0.6&mode=eta&t=120 (t = frame index, pauses)
-  const q = new URLSearchParams(location.search);
-  for (const [k, v] of q) if (k in engine.params) {
-    const el = document.querySelector(`[data-k=${k}]`);
-    if (el.type === 'checkbox') { el.checked = v !== '0'; el.dispatchEvent(new Event('input')); } else setParam(k, v);
-  }
+  const q = new URLSearchParams(location.search); // ?t=frame index, pauses
   if (q.has('t')) { player.t = +q.get('t'); player.playing = false; }
   return ++session;
 }
