@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cardiac Activation</title>
+<link rel="stylesheet" href="../common.css">
+<style>:root { --accent: #ff7a45; --bg: #050307; }</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="view"></div>
+<div class="vignette"></div>
+
+<header>
+  <div class="kicker">Aliev–Panfilov · cardiac excitation</div>
+  <h1>Cardiac activation</h1>
+  <div class="sub"><span id="dims"></span> · <span id="status">loading…</span></div>
+</header>
+
+<details id="panel" class="glass" open>
+  <summary>View</summary>
+  <label>Colormap
+    <select data-k="cmap"><option value="ember">Ember</option><option value="clinical">Clinical (turbo)</option></select>
+  </label>
+  <label>Geometry
+    <select data-k="geometry"><option value="ventricle">Ventricle (x periodic)</option><option value="sheet">Tissue sheet</option></select>
+  </label>
+  <label>Glow <output></output><input type="range" data-k="glow" min="0" max="6" step="0.05"></label>
+  <label>Wavefront <output></output><input type="range" data-k="front" min="0" max="5" step="0.05"></label>
+  <label>Contraction <output></output><input type="range" data-k="contract" min="0" max="0.12" step="0.005"></label>
+  <label class="check"><input type="checkbox" data-k="autorotate"> Auto-rotate</label>
+  <p class="hint">Drop <b>u.npy</b> (T, Ny, Nx) transmembrane potential [+ meta.json], or open with <code>?data=dir/</code>. Trace: pseudo-ECG.</p>
+</details>
+
+<div id="timeline" class="glass">
+  <button id="play" aria-label="Pause">❚❚</button>
+  <span id="time">—</span>
+  <div class="track"><canvas id="spark" title="pseudo-ECG"></canvas><input id="scrub" type="range" min="0" max="0" step="any" value="0" aria-label="Time"></div>
+  <select id="speed" aria-label="Playback speed"><option value="12">0.5×</option><option value="24" selected>1×</option><option value="48">2×</option><option value="96">4×</option></select>
+</div>
+<div id="drop">Drop .npy files</div>
+
+<script type="module">
+import { HeartEngine } from './engine.js';
+import { heartDemo } from './demo.js';
+import { Player, loadFromUrl, onDrop, splitFrames, bindPanel, status } from '../common.js';
+
+const engine = new HeartEngine(document.getElementById('view'));
+const player = new Player();
+player.fps = +document.getElementById('speed').value;
+let grid, ecg, lo, hi, fixedRange, session = 0;
+engine.onFrame = sec => { player.advance(sec); const s = player.sample(); if (s) engine.setFrames(...s); };
+bindPanel(engine.params, k => (k === 'geometry' ? engine.setGrid(grid.nx, grid.ny, { ...grid, geometry: engine.params.geometry }) : engine.applyParams()));
+
+// pseudo-ECG: φ(t) = -Σ ∇u · (r - r0)/|r - r0|³, electrode at height d above an off-centre point of the grid
+function ecgOf({ nx, ny, lx, ly }) {
+  const hx = lx / nx, hy = ly / ny, x0 = 0.15 * lx, y0 = 0.8 * ly, d = 0.25 * Math.max(lx, ly);
+  const wx = new Float32Array(nx * ny), wy = new Float32Array(nx * ny);
+  for (let j = 0, k = 0; j < ny; j++) for (let i = 0; i < nx; i++, k++) {
+    const dx = i * hx - x0, dy = j * hy - y0, r = Math.hypot(dx, dy, d), r3 = r * r * r;
+    wx[k] = -dx / r3 / (2 * hx); wy[k] = -dy / r3 / (2 * hy);
+  }
+  return u => {
+    let s = 0;
+    for (let j = 1; j < ny - 1; j++) for (let i = 1, k = j * nx + 1; i < nx - 1; i++, k++) s += (u[k + 1] - u[k - 1]) * wx[k] + (u[k + nx] - u[k - nx]) * wy[k];
+    return s;
+  };
+}
+
+function start(nx, ny, meta = {}) {
+  const geometry = new URLSearchParams(location.search).get('geometry') ?? meta.geometry ?? engine.params.geometry;
+  grid = { nx, ny, lx: meta.lx ?? nx, ly: meta.ly ?? ny, geometry };
+  engine.setGrid(nx, ny, grid);
+  document.querySelector('[data-k=geometry]').value = geometry;
+  fixedRange = meta.range; lo = Infinity; hi = -Infinity;
+  if (fixedRange) engine.range = fixedRange;
+  ecg = ecgOf(grid);
+  player.reset(meta.dt ?? 1, meta.time_unit ?? 'ms');
+  document.querySelector('h1').textContent = meta.title ?? 'Cardiac activation';
+  document.getElementById('dims').textContent = `${nx}×${ny}`;
+  return ++session;
+}
+
+// one timestep of u (Float32Array, ny*nx). Also the hook for live solvers: window.viz.push(u)
+function push(u) {
+  if (u.length !== grid.nx * grid.ny) throw new Error(`frame has ${u.length} values, expected ${grid.ny}×${grid.nx}`);
+  if (!fixedRange) {
+    for (const v of u) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    engine.range = [lo, hi];
+  }
+  player.push(u, ecg(u));
+  status(`${player.frames.length} frames`);
+}
+
+function ingest(arr, meta) {
+  try {
+    const { nx, ny, frames } = splitFrames(arr);
+    start(nx, ny, meta);
+    frames.forEach(push);
+  } catch (e) { status(e.message, true); }
+}
+
+function demo() {
+  const d = heartDemo(), s = start(d.nx, d.ny, d.meta);
+  let k = 0;
+  (function gen() {
+    if (s !== session) return;
+    for (let n = 0; n < 6 && k < d.count; n++) push(d.frame(k++));
+    if (k < d.count) requestAnimationFrame(gen);
+  })();
+}
+
+window.viz = { engine, player, start, push };
+onDrop(d => (d.frames ? ingest(d.frames, d.meta) : status('drop a u.npy shaped (T, Ny, Nx)', true)));
+const url = await loadFromUrl(['u']).catch(e => (status(e.message, true), undefined));
+if (url?.u) ingest(url.u, url.meta);
+else if (url === null) demo();
+else if (url) status('no u.npy in ?data dir', true);
+</script>
+</body>
+</html>
