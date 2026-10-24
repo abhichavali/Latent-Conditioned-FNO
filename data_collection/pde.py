@@ -177,8 +177,13 @@ def rollout(spec_json, u0, dt, substeps, frames):
     return jnp.concatenate([u0[:, None], jnp.moveaxis(traj, 0, 1)], 1)
 
 
+def solver_key(spec):
+    """Only what changes the compiled program: dt and substeps are traced, so they are left out."""
+    return json.dumps({k: spec[k] for k in ("fields", "static", "rhs", "L", "N", "order") if k in spec}, sort_keys=True)
+
+
 def simulate(spec, u0):
-    return rollout(json.dumps(spec, sort_keys=True), u0, spec["dt"], spec["substeps"], spec["frames"])
+    return rollout(solver_key(spec), u0, spec["dt"], spec["substeps"], spec["frames"])
 
 
 def grid(spec):
