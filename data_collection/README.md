@@ -22,7 +22,7 @@ root per field; edges are `[child, parent, arg position]` (position matters only
 |---|---|
 | `pde.py` | spec → graph / LaTeX; generic exponax ETDRK solver for any spec (one compile per spec) |
 | `template.py` | 2- and 3-field coefficient templates: an equation is a coefficient matrix over a fixed term library, so one compile serves all equations, vmapped over equations × ICs; specs are generated from the coefficients |
-| `sample.py` | equation families (transport/waves near SWE, excitable/reaction–diffusion near Aliev–Panfilov, pattern formation, free composition) + mutations; GPU IC pools (7 pattern families, patches, wakes, vortex seeds); max-entropy (greedy log-det) window selection |
+| `sample.py` | equation families (transport/waves near SWE, excitable/reaction–diffusion near Aliev–Panfilov, pattern formation, free composition) + mutations; GPU IC pools (7 pattern families, patches, wakes, vortex seeds); max-entropy (greedy log-det over bounded spectral/amplitude/rate features) window selection, capped at 25% per IC family and 2/3 early windows |
 | `generate.py` | per-equation dt / frame-interval calibration, pool rollout over two 14-step windows, selection of 73 windows, writer |
 | `demos.py` | shallow water and Aliev–Panfilov as specs, simulated and written for `viz/tsunami` and `viz/heart` |
 
