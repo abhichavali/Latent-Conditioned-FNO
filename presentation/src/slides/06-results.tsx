@@ -5,8 +5,8 @@ import { Stat } from '../components/Stat'
 import { fmtDuration, results } from '../demo/bank'
 
 // Every number here comes from src/data/results.json. null renders as a dash; placeholder: true shows "results pending".
-const { batch } = results.timing
-const speedup = results.placeholder ? null : results.speedup_shown ?? null
+const { sequential: seq } = results.timing
+const speedup = seq.simula_seconds && seq.solver_seconds ? seq.solver_seconds / seq.simula_seconds : null
 const dec = (v: number | null) => (v !== null && v < 10 ? 1 : 0)
 const COLORS: Record<string, string> = { simula: 'var(--sea)', standard_ai: '#8c97a8' }
 const series = results.chart.series.map(s => ({
@@ -35,7 +35,7 @@ export default {
           <Stat value={results.fewer_simulations} decimals={dec(results.fewer_simulations)} unit="×" step={0}
             label={<><b>fewer simulations</b> than a standard AI model to reach the same accuracy (heart; wildfire 2×)</>} />
           <Stat value={speedup} decimals={dec(speedup)} unit="×" step={0}
-            label={<><b>faster</b> per forecast than the simulator · <span style={{ whiteSpace: 'nowrap' }}>{batch.scenarios.toLocaleString('en-US')} scenarios in {batch.simula_seconds === null ? '—' : fmtDuration(batch.simula_seconds)}</span></>} />
+            label={<><b>faster</b> than the simulator: {seq.scenarios.toLocaleString('en-US')} scenarios, one at a time, <span style={{ whiteSpace: 'nowrap' }}>{seq.simula_seconds === null ? '—' : fmtDuration(seq.simula_seconds)} vs {seq.solver_seconds === null ? '—' : fmtDuration(seq.solver_seconds)}</span></>} />
         </div>
         <div className="chart-box" {...build(1, 'fade')}>
           <Chart width={880} height={470} logX logY xDomain={xDomain} yDomain={yDomain} xTicks={ticks(...xDomain)} yTicks={ticks(...yDomain)}
@@ -49,8 +49,8 @@ export default {
   notes: `(3:10–3:35) All values come from src/data/results.json. While "Results pending" shows, don't quote numbers.
 
 12× fewer simulations: on the heart, Simula with 5 simulations matches a standard AI model trained on 64.
-10× faster per forecast than the simulator, and a 1,000-scenario risk map in about five seconds.
-If asked about absolute times: measured 12× per forecast on one RTX 5090; for 1,000 at once the simulator batches well, 5.5 s vs 12.7 s (2.3×). Don't claim 10× at batch scale.
+10.2× faster: 1,000 earthquakes run one at a time, 23 seconds vs almost 4 minutes for the simulator.
+If asked: one forecast is 12.2× faster (0.02 s vs 0.23 s, one RTX 5090). Run in big batches the simulator catches up (5.5 s vs 12.7 s, 2.3×); don't claim 10× for batched runs.
 (click) The chart: heart error vs number of simulations, Simula vs the same model trained from scratch, same test set and metric.
 If asked: wildfire is about 2× fewer at every accuracy level; on the tsunami Simula is only ahead up to ~8 simulations. By ~100+ simulations scratch catches up everywhere.
 Footnote: "And Simula never trained on tsunamis or heart tissue."`,

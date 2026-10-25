@@ -20,7 +20,18 @@
       "solver_seconds": 12.7307,
       "note": "the flood-risk map: this many earthquakes. Results slide: Y = solver_seconds / simula_seconds, Z = simula_seconds, W = solver_seconds in minutes"
     },
-    "note": "presentation/public/demo/timing.json: NVIDIA GeForce RTX 5090; solver = our GPU pseudo-spectral solver (pde.rollout, JAX); Simula: 1 particle, after warm-up, incl. copies to host. Batch: each side at its fastest batch size."
+    "note": "presentation/public/demo/timing.json: NVIDIA GeForce RTX 5090; solver = our GPU pseudo-spectral solver (pde.rollout, JAX); Simula: 1 particle, after warm-up, incl. copies to host. Batch: each side at its fastest batch size.",
+    "sequential": {
+      "scenarios": 1000,
+      "simula_seconds": 22.5995,
+      "solver_seconds": 229.5293,
+      "note": "1,000 random quakes run one at a time on both sides (batch 1), RTX 5090, after warm-up (demo_bank.py timing_seq). Results slide speed stat."
+    },
+    "fire": {
+      "simula_seconds": null,
+      "solver_seconds": null,
+      "note": "one wildfire rollout, batch 1 (demo, wildfire tab)"
+    }
   },
   "rehearsal": {
     "note": "NOT RESULTS. Durations the timers animate with while the measured values above are null; every view using them shows a 'placeholder timing' tag.",
@@ -35,6 +46,14 @@
     "batch": {
       "simula_seconds": 1.5,
       "solver_seconds": 3600
+    },
+    "fire": {
+      "simula_seconds": 1,
+      "solver_seconds": 12
+    },
+    "sequential": {
+      "simula_seconds": 1,
+      "solver_seconds": 12
     }
   },
   "chart": {
@@ -165,7 +184,5 @@
         ]
       }
     ]
-  },
-  "speedup_shown": 10,
-  "speedup_shown_note": "Shown per forecast instead of seconds. Measured: tsunami 0.232 / 0.019 = 12.2x, heart 0.450 / 0.038 = 11.9x; shown rounded down. Batch of 1,000 (each side at its best batch): 5.5 s vs 12.7 s = 2.3x -- the slides show only Simula's 5.5 s; don't claim 10x at batch scale."
+  }
 }

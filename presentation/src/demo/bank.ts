@@ -9,16 +9,16 @@ type Timing = { simula_seconds: number | null; solver_seconds: number | null }
 type Point = { sims: number; error: number }
 export type Results = {
   placeholder: boolean
-  speedup_shown?: number
   fewer_simulations: number | null
-  timing: { tsunami: Timing; heart: Timing; batch: Timing & { scenarios: number } }
-  rehearsal: Record<'tsunami' | 'heart' | 'batch', { simula_seconds: number; solver_seconds: number }>
+  timing: { tsunami: Timing; heart: Timing; fire: Timing; batch: Timing & { scenarios: number }; sequential: Timing & { scenarios: number } }
+  rehearsal: Record<Kind, { simula_seconds: number; solver_seconds: number }>
   chart: { title: string; x_label: string; y_label: string; series: { id: string; label: string; points: Point[] }[] }
 }
 export const results = raw as Results
+type Kind = 'tsunami' | 'heart' | 'fire' | 'batch' | 'sequential'
 
 /** Measured timings, or the rehearsal durations (placeholder = true) while they're null. */
-export function timing(kind: 'tsunami' | 'heart' | 'batch') {
+export function timing(kind: Kind) {
   const m = results.timing[kind], r = results.rehearsal[kind]
   return {
     simula: m.simula_seconds ?? r.simula_seconds,
@@ -26,6 +26,9 @@ export function timing(kind: 'tsunami' | 'heart' | 'batch') {
     placeholder: m.simula_seconds === null || m.solver_seconds === null,
   }
 }
+
+/** solver time / Simula time, one decimal: the measured multiple shown on screen */
+export const ratio = (t: { simula: number; solver: number }) => (t.solver / t.simula).toFixed(1)
 
 export const fmtDuration = (s: number) =>
   s < 1 ? `${+s.toPrecision(2)} s` : s < 120 ? `${+s.toFixed(1)} s` : s < 7200 ? `${+(s / 60).toFixed(1)} min` : `${+(s / 3600).toFixed(1)} h`
@@ -44,15 +47,16 @@ export type TsunamiBank = {
   scenarios: TsunamiScenario[]
   risk?: { frames: string; count: number; unit?: string }
 }
-export type Ablation = { id: string; label?: string; line: [XY, XY]; frames: string; stops_arrhythmia: boolean }
+export type Ablation = { id: string; label?: string; line: [XY, XY]; frames: string; stops_arrhythmia: boolean } // fire: a firebreak, true = town safe
 export type Scar = { id: string; x: number; y: number; r: number; frames: string; ablations: Ablation[] }
 export type HeartBank = {
   version: 1; mock?: boolean; note?: string
   grid: { nx: number; ny: number; lx?: number; ly?: number }
   geometry?: 'sheet' | 'ventricle'; dt: number; time_unit?: string; range?: [number, number]
+  asset?: { x: number; y: number; r: number; label: string } // fire: the town
   scars: Scar[]
 }
-type Banks = { tsunami: TsunamiBank; heart: HeartBank }
+type Banks = { tsunami: TsunamiBank; heart: HeartBank; fire: HeartBank } // fire reuses the heart schema: scars = ignitions, ablations = firebreaks
 
 const ROOT = `${import.meta.env.BASE_URL}demo/`
 const cache = new Map<string, Promise<unknown>>()

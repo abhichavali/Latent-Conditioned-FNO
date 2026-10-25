@@ -275,6 +275,7 @@ p { margin: 0; }
 .hook > .poster { position: relative; border-radius: var(--r-lg); }
 .hook-panel { position: relative; overflow: hidden; border-radius: var(--r-lg); border: 1px solid var(--line); background: #04060a;
   box-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(0, 0, 0, 0.5); }
+.hook-go { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 5; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
 .hook-panel.t-sea { border-color: color-mix(in oklab, var(--sea) 35%, transparent); }
 .hud-top, .hud-bottom { position: absolute; left: 0; right: 0; padding: 22px 28px; display: flex; align-items: center; gap: 20px; pointer-events: none; }
 .hud-top { top: 0; justify-content: space-between; background: linear-gradient(rgba(3, 5, 9, 0.78), transparent); }
@@ -335,6 +336,10 @@ p { margin: 0; }
 .demo-title h3 { margin-top: 12px; font: 350 50px / 1.05 var(--serif); letter-spacing: -0.01em; max-width: 20ch; }
 .c-sea.kicker { color: var(--sea); } .c-ember.kicker { color: var(--ember); }
 .corner { position: absolute; top: 24px; right: 24px; }
+.eqs { position: absolute; left: 24px; bottom: 62px; padding: 16px 24px 14px; display: grid; gap: 6px; background: var(--glass-solid); pointer-events: none; }
+.eqs .kicker { color: var(--muted); margin-bottom: 4px; }
+.eqs .katex { font-size: 25px; color: var(--ink); }
+.eqs small { font: 400 15px / 1.3 var(--mono); color: var(--muted); }
 .race { width: 420px; padding: 22px 26px; display: grid; gap: 12px; background: var(--glass-solid); --tone: var(--ember); }
 .race-row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
 .race-row b { font: 500 22px var(--sans); color: var(--ink-2); }

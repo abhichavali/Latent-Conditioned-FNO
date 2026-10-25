@@ -4,7 +4,7 @@ import { Demo } from '../demo/Demo'
 export default {
   title: 'Live demo',
   section: 'Live demo',
-  steps: 2, // 0 tsunami, 1 flood-risk map, 2 heart (tabs are clickable too)
+  steps: 3, // 0 tsunami, 1 flood-risk map, 2 heart, 3 wildfire (tabs are clickable too)
   Component: Demo,
   notes: `(1:40–3:10) The demo is half the talk. → / ← switch tabs; clicking the tabs works too.
 
@@ -24,6 +24,11 @@ HEART (→)
 - Click the tissue to place a scar: "Place a scar, and a spiral (the arrhythmia) forms around it."
 - "A cardiologist would want to screen thousands of scar layouts and treatment plans. At ten times the speed of the simulator, that becomes practical."
 - Try two or three scar positions. (There's no ablation step: in our simulator an ablation line slows the wave but never blocks it.)
+
+WILDFIRE (→)
+- Click the forest to start a fire: "A fire starts here, and the wind drives it toward the town."
+- Click the firebreaks one by one: "Cut a firebreak here... the town burns. Here... the town is saved."
+- "A fire crew would want to test thousands of firebreak plans before committing bulldozers. Simula makes that a few seconds."
 
 If anything breaks: "Backup: play video" (top right) plays public/demo/backup.mp4. Esc closes it.
 A "Mock data" badge means you're on the rehearsal bank, not Simula's predictions.`,

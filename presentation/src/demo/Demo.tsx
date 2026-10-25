@@ -4,12 +4,12 @@ import * as THREE from 'three'
 import gsap from 'gsap'
 import { useMode, useStep } from '../deck/SlideFrame'
 import { reduced } from '../deck/motion'
-import { fmtDuration, loadBank, loadFrames, nearest, results, timing, useAsync, type TsunamiBank } from './bank'
+import { fmtDuration, loadBank, loadFrames, nearest, ratio, results, timing, useAsync, type TsunamiBank } from './bank'
 import { Clip, etaMax, riskLayer, tsunami } from './engines'
-import { BankStatus, MockBadge, Poster, SLOW, SolverCard, shownX } from './hud'
-import { HeartDemo } from './HeartDemo'
+import { BankStatus, Equations, MockBadge, Poster, SLOW, SolverCard } from './hud'
+import { FireDemo, HeartDemo } from './HeartDemo'
 
-const TABS = ['Tsunami', 'Flood-risk map', 'Heart']
+const TABS = ['Tsunami', 'Flood-risk map', 'Heart', 'Wildfire']
 const noFocus = (e: { preventDefault(): void }) => e.preventDefault() // keep focus off buttons so Space still drives the deck
 
 export function Demo() {
@@ -29,7 +29,7 @@ export function Demo() {
         {live && <button className="btn ghost" onMouseDown={noFocus} onClick={() => setBackup(true)}>Backup: play video</button>}
       </div>
       <div className="demo-view glass">
-        {!live ? <Poster label={TABS[tab]} tone={tab === 2 ? 'ember' : 'sea'} /> : tab < 2 ? <TsunamiDemo risk={tab === 1} /> : <HeartDemo />}
+        {!live ? <Poster label={TABS[tab]} tone={tab >= 2 ? 'ember' : 'sea'} /> : tab < 2 ? <TsunamiDemo risk={tab === 1} /> : tab === 2 ? <HeartDemo /> : <FireDemo />}
       </div>
       {backup && <Backup close={() => setBackup(false)} />}
     </div>
@@ -204,7 +204,8 @@ function TsunamiLive({ bank, risk }: { bank: TsunamiBank; risk: boolean }) {
         <>
           <div className="demo-title"><span className="kicker c-sea">Tsunami forecast</span><h3>Drag the epicentre</h3></div>
           <SolverCard t={t} run={run} who={who} className="corner" />
-          <p className="demo-hint">Every forecast {shownX()}× faster than the simulator · {bank.scenarios.length} precomputed Simula forecasts · wave height exaggerated for visibility{sel ? '' : ' · loading…'}</p>
+          <Equations kind="tsunami" />
+          <p className="demo-hint">Every forecast {ratio(t)}× faster than the simulator · {bank.scenarios.length} precomputed Simula forecasts · wave height exaggerated for visibility{sel ? '' : ' · loading…'}</p>
         </>
       ) : (
         <>

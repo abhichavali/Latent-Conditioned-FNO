@@ -353,6 +353,23 @@ def timing(a):
     print(json.dumps(T), flush=True)
 
 
+def timing_seq(a):
+    """batch_n quakes run one at a time on both sides (no batching); added to timing.json as "sequential"."""
+    sw = load(a.models, "swe")
+    t14 = np.arange(1, 15) / 14
+    _, si, ss = targets.sample("swe", a.batch_n, np.random.default_rng(a.seed))
+    one = lambda i: (sw(si[i : i + 1], ss[i : i + 1], t14), solve("swe", si[i : i + 1], ss[i : i + 1], batch=1))
+    one(0)  # warm-up / compile both
+    seq = lambda f: clock(lambda: [f(i) for i in range(len(si))], reps=1)
+    T = json.load(open(f"{a.out}/timing.json"))
+    T["sequential"] = {"simula_seconds": seq(lambda i: sw(si[i : i + 1], ss[i : i + 1], t14)),
+                       "solver_seconds": seq(lambda i: solve("swe", si[i : i + 1], ss[i : i + 1], batch=1)),
+                       "scenarios": a.batch_n, "what": f"{a.batch_n} random sampler quakes, 15 frames each, run one at a "
+                       "time on both sides (batch 1)"}
+    json.dump(T, open(f"{a.out}/timing.json", "w"), indent=1)
+    print(json.dumps(T["sequential"]), flush=True)
+
+
 def check():
     m = seg_mask((0.2, 0.5), (0.6, 0.5), 0.02)
     assert m[64, 50] > 0.99 and m[64, 100] < 0.01 and m[40, 50] < 0.01  # on the line, past its end, off to the side
@@ -366,7 +383,7 @@ def check():
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["tsunami", "heart", "timing", "check"])
+    ap.add_argument("cmd", choices=["tsunami", "heart", "fire", "timing", "timing_seq", "check"])
     ap.add_argument("--models", default=MODELS)
     ap.add_argument("--out", default="/workspace/results/demo_bank")
     ap.add_argument("--seed", type=int, default=0)
@@ -388,4 +405,4 @@ if __name__ == "__main__":
     ap.add_argument("--chunks", type=int, nargs="+", default=[4, 8, 16, 32, 64], help="timing: Simula ICs per call")
     ap.add_argument("--solver_batches", type=int, nargs="+", default=[100, 250, 500, 1000])
     a = ap.parse_args()
-    check() if a.cmd == "check" else {"tsunami": tsunami, "heart": heart, "timing": timing}[a.cmd](a)
+    check() if a.cmd == "check" else {"tsunami": tsunami, "heart": heart, "fire": fire, "timing": timing, "timing_seq": timing_seq}[a.cmd](a)

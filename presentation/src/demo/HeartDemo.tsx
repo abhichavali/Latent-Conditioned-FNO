@@ -1,13 +1,47 @@
-// Slide 5, heart tab: click the tissue to place a scar (the arrhythmia forms), then try ablation lines.
+// Slide 5, heart and wildfire tabs (same bank schema): click to place a scar / start a fire, then try ablation lines / firebreaks.
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { loadBank, loadFrames, nearest, timing, useAsync, type HeartBank, type Scar } from './bank'
+import { loadBank, loadFrames, nearest, ratio, timing, useAsync, type HeartBank, type Scar } from './bank'
 import { Clip, HeartEngine, mount, surface } from './engines'
-import { BankStatus, MockBadge, SLOW, SolverCard, shownX } from './hud'
+import { BankStatus, Equations, MockBadge, SLOW, SolverCard } from './hud'
 
-export function HeartDemo() {
-  const bank = useAsync(() => loadBank('heart'), [])
-  return bank.value ? <HeartLive bank={bank.value} /> : <BankStatus kind="heart" error={bank.error} />
+type Kind = 'heart' | 'fire'
+const TEXT = {
+  heart: { kicker: (abl: boolean) => abl ? 'Heart · ablation planning' : 'Heart · scar risk', place: 'Click the tissue to place a scar',
+    formed: (abl: boolean) => abl ? 'An arrhythmia forms. Try an ablation line' : 'An arrhythmia forms around the scar', ask: 'Does this line stop it?',
+    panel: 'Ablation sites', ok: 'stops it', no: 'keeps going', yes: '✓ Arrhythmia stopped', nope: '✗ Still spiralling', screen: 'scar layouts' },
+  fire: { kicker: () => 'Wildfire · firebreak planning', place: 'Click the forest to start a fire',
+    formed: (abl: boolean) => abl ? 'The fire heads for the town. Try a firebreak' : 'The fire spreads with the wind', ask: 'Does this firebreak save the town?',
+    panel: 'Firebreaks', ok: 'saves it', no: 'town burns', yes: '✓ Town saved', nope: '✗ Town burns', screen: 'firebreak plans' },
+}
+
+export const HeartDemo = () => <SheetDemo kind="heart" />
+export const FireDemo = () => <SheetDemo kind="fire" />
+
+function SheetDemo({ kind }: { kind: Kind }) {
+  const bank = useAsync(() => loadBank(kind), [kind])
+  return bank.value ? <HeartLive bank={bank.value} kind={kind} /> : <BankStatus kind={kind} error={bank.error} />
+}
+
+// fire palette over the bank's display value d (see the fire bank's note): forest green -> charcoal (burned) ->
+// slate (lake, bare ground) -> fire red -> orange -> white-hot; values > 1 glow through the bloom
+const FIRE_STOPS: [number, number, number, number][] = [
+  [0, 0.08, 0.13, 0.05], [0.05, 0.12, 0.19, 0.07], [0.2, 0.25, 0.42, 0.12], [0.26, 0.14, 0.14, 0.11], [0.32, 0.05, 0.045, 0.04],
+  [0.38, 0.09, 0.08, 0.07], [0.42, 0.16, 0.3, 0.4], [0.48, 0.16, 0.3, 0.4], [0.52, 0.2, 0.1, 0.04], [0.55, 1.4, 0.16, 0.02],
+  [0.75, 3.2, 0.95, 0.1], [1, 5, 3.6, 1.2],
+]
+function fireLut() {
+  const n = 256, d = new Uint16Array(n * 4)
+  for (let i = 0; i < n; i++) {
+    const v = i / (n - 1), k = Math.max(1, FIRE_STOPS.findIndex(s => s[0] >= v)), [a, b] = [FIRE_STOPS[k - 1], FIRE_STOPS[k]]
+    const w = Math.min(1, Math.max(0, (v - a[0]) / (b[0] - a[0] || 1)))
+    for (let c = 0; c < 3; c++) d[i * 4 + c] = THREE.DataUtils.toHalfFloat(a[c + 1] + (b[c + 1] - a[c + 1]) * w)
+    d[i * 4 + 3] = THREE.DataUtils.toHalfFloat(1)
+  }
+  const t = new THREE.DataTexture(d, n, 1, THREE.RGBAFormat, THREE.HalfFloatType)
+  t.magFilter = t.minFilter = THREE.LinearFilter
+  t.needsUpdate = true
+  return t
 }
 
 type XY = [number, number]
@@ -30,14 +64,15 @@ function label(text: string) {
 
 type Ctl = { click(e: { clientX: number; clientY: number }): void; ablate(id: string): void }
 
-function HeartLive({ bank }: { bank: HeartBank }) {
+function HeartLive({ bank, kind }: { bank: HeartBank; kind: Kind }) {
+  const T = TEXT[kind]
   const box = useRef<HTMLDivElement>(null), ctl = useRef<Ctl | null>(null), down = useRef<XY | null>(null)
   const [scar, setScar] = useState<Scar | null>(null)
   const [abl, setAbl] = useState<string | null>(null)
   const [verdicts, setVerdicts] = useState<Record<string, boolean>>({}) // `${scar}/${ablation}` -> stops?
   const [run, setRun] = useState(0)
   const [error, setError] = useState<string>()
-  const t = timing('heart')
+  const t = timing(kind)
 
   useEffect(() => {
     const { nx, ny } = bank.grid, range = bank.range ?? [0, 1]
@@ -45,9 +80,16 @@ function HeartLive({ bank }: { bank: HeartBank }) {
     engine.params.autorotate = false
     engine.setGrid(nx, ny, { geometry: bank.geometry ?? 'sheet', lx: bank.grid.lx ?? nx, ly: bank.grid.ly ?? ny })
     engine.range = range
+    if (kind === 'fire') { // forest floor instead of tissue; the LUT path ('clinical') carries the fire palette
+      const e = engine as unknown as { luts: Record<string, THREE.Texture>; material: THREE.MeshPhysicalMaterial; params: Record<string, unknown>; applyParams(): void }
+      e.luts.clinical = fireLut()
+      Object.assign(e.params, { cmap: 'clinical', contract: 0, glow: 1 })
+      e.material.color.set('#3c4a2c'); e.material.clearcoat = 0.1; e.material.sheen = 0
+      e.applyParams()
+    }
     engine.camera.position.set(0.7, 0.5, 6.8) // closer than the engine default, shifted so the side panel doesn't cover the tissue
     engine.controls.target.set(0.7, 0, 0)
-    for (const s of bank.scars) for (const f of [s.frames, ...s.ablations.map(a => a.frames)]) loadFrames('heart', f, bank.grid).catch(() => {}) // prefetch
+    for (const s of bank.scars) for (const f of [s.frames, ...s.ablations.map(a => a.frames)]) loadFrames(kind, f, bank.grid).catch(() => {}) // prefetch
 
     const surf = surface(engine.mesh), up = new THREE.Vector3(0, 0, 1)
     const unit = surf.at(0.45, 0.5).p.distanceTo(surf.at(0.55, 0.5).p) / 0.1 // local units per grid fraction
@@ -58,7 +100,12 @@ function HeartLive({ bank }: { bank: HeartBank }) {
     }
     // every scar site as a faint ring; the placed scar as a solid disc
     for (const s of bank.scars) engine.heart.add(onSurface(new THREE.Mesh(new THREE.RingGeometry(s.r * unit * 0.85, s.r * unit, 48), mat(COLORS.idle, 1, 0.35)), s.x, s.y))
-    const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 48), mat('#3a3f4a', 1, 0.95))
+    if (bank.asset) { // the town the fire must not reach
+      const { x, y, r, label: name } = bank.asset
+      engine.heart.add(onSurface(new THREE.Mesh(new THREE.RingGeometry(r * unit * 0.8, r * unit, 48), mat('#ffe2c2', 2, 0.9)), x, y))
+      const tag = label(name.slice(0, 1)); tag.position.copy(surf.at(x, y, 0.12).p); engine.heart.add(tag)
+    }
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 48), mat(kind === 'fire' ? '#ffb070' : '#3a3f4a', kind === 'fire' ? 2 : 1, 0.95))
     disc.visible = false
     engine.heart.add(disc)
     let lines = new THREE.Group()
@@ -78,7 +125,7 @@ function HeartLive({ bank }: { bank: HeartBank }) {
     }
     const play = (file: string, loop: boolean, then?: () => void) => {
       const me = ++token
-      loadFrames('heart', file, bank.grid).then(fr => {
+      loadFrames(kind, file, bank.grid).then(fr => {
         if (me !== token) return
         clip.loop = loop
         clip.play(fr, t.simula * SLOW)
@@ -127,7 +174,7 @@ function HeartLive({ bank }: { bank: HeartBank }) {
       ablate,
     }
     return () => { token++; ctl.current = null; dispose() }
-  }, [bank, t.simula])
+  }, [bank, kind, t.simula])
 
   const verdict = scar && abl ? verdicts[`${scar.id}/${abl}`] : undefined
   return (
@@ -140,26 +187,27 @@ function HeartLive({ bank }: { bank: HeartBank }) {
           if (d && Math.hypot(e.clientX - d[0], e.clientY - d[1]) < 8) ctl.current?.click(e)
         }} />
       <div className="demo-title">
-        <span className="kicker c-ember">{bank.scars.some(s => s.ablations.length) ? 'Heart · ablation planning' : 'Heart · scar risk'}</span>
-        <h3>{!scar ? 'Click the tissue to place a scar' : !abl ? (scar.ablations.length ? 'An arrhythmia forms. Try an ablation line' : 'An arrhythmia forms around the scar') : 'Does this line stop it?'}</h3>
+        <span className="kicker c-ember">{T.kicker(bank.scars.some(s => s.ablations.length))}</span>
+        <h3>{!scar ? T.place : !abl ? T.formed(scar.ablations.length > 0) : T.ask}</h3>
       </div>
+      <Equations kind={kind} />
       <SolverCard t={t} run={run} who={bank.mock ? 'Mock forecast' : 'Simula'} className="corner" />
       {scar && scar.ablations.length > 0 && (
         <div className="ablations glass">
-          <span className="kicker">Ablation sites</span>
+          <span className="kicker">{T.panel}</span>
           {scar.ablations.map(a => {
             const v = verdicts[`${scar.id}/${a.id}`]
             return (
               <button key={a.id} className={`abl${a.id === abl ? ' on' : ''}`} onMouseDown={e => e.preventDefault()} onClick={() => ctl.current?.ablate(a.id)}>
                 <span>{a.label ?? a.id}</span>
-                <i className={v === undefined ? '' : v ? 'ok' : 'no'}>{v === undefined ? '' : v ? 'stops it' : 'keeps going'}</i>
+                <i className={v === undefined ? '' : v ? 'ok' : 'no'}>{v === undefined ? '' : v ? T.ok : T.no}</i>
               </button>
             )
           })}
         </div>
       )}
-      {verdict !== undefined && <div className={`verdict ${verdict ? 'ok' : 'no'}`}>{verdict ? '✓ Arrhythmia stopped' : '✗ Still spiralling'}</div>}
-      <p className="demo-hint">Every rollout {shownX()}× faster than the simulator · fast enough to screen thousands of scar layouts</p>
+      {verdict !== undefined && <div className={`verdict ${verdict ? 'ok' : 'no'}`}>{verdict ? T.yes : T.nope}</div>}
+      <p className="demo-hint">Every rollout {ratio(t)}× faster than the simulator · fast enough to test thousands of {T.screen}</p>
       {bank.mock && <MockBadge what="baseline FNO, drawn-in ablations, not Simula" />}
       {error && <div className="bank-status"><strong>Demo error</strong><p>{error}</p></div>}
     </div>
