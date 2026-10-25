@@ -332,6 +332,8 @@ def run(a):
         log(f"round {r} sims {rec['n_sims']}", ev.brief({"post": e}), f"fit {rec['fit_relL2']:.4f} spread {rec['eps_spread']:.3f}",
             {k: round(v, 1) for k, v in rec["time"].items()}, "| ft" if a.ft_steps else "",
             (ev.brief({"ft": ft["test"]}), round(ft["train_rel"], 4), round(ft["time_s"], 1)) if a.ft_steps else "")
+    if not a.keep_ft and os.path.exists(f"{out}/ft.eqx"):  # the fine-tuned weights are only needed to resume
+        os.remove(f"{out}/ft.eqx")
     open(f"{out}/DONE", "w").write("")
 
 
@@ -468,6 +470,7 @@ def main():
     ap.add_argument("--c_patience", type=int, default=4, help="stage C: validations (every 100 steps) without improvement")
     ap.add_argument("--c_lr_end", type=float, default=1.0, help="stage C: cosine decay to lr * this within each round (1 = constant)")
     ap.add_argument("--tag", default="", help="replay: suffix of the output file")
+    ap.add_argument("--keep_ft", action=argparse.BooleanOptionalAction, default=True, help="keep ft.eqx after the run")
     ap.add_argument("--run", default="/workspace/runs/pretrain_A")
     ap.add_argument("--ckpt")
     ap.add_argument("--target", default="swe")
