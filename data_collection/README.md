@@ -43,6 +43,14 @@ root per field; edges are `[child, parent, arg position]` (position matters only
 python generate.py --out /workspace/pdegen/out --pool 512
 ```
 
+351 of A's equations (8 with nan frames) were hit by the selection bug described under B and reselected in place
+from their specs; `--ic-scale 0.9 0.3` restores A's IC pool (`--check` on A reproduces it):
+
+```sh
+python generate.py --supplement A_SPECS_AFFECTED --extra 0 --pool 512 --windows 2 --ic-scale 0.9 0.3 --out A_FIX --n 1024
+python merge_extra.py A_DIR A_FIX 73 73   # 73 = 73 windows: replaces them
+```
+
 **B** — 4096 equations x 30 ICs, current sampler: 18 generated, one worker per GPU (worker 1: `CUDA_VISIBLE_DEVICES=1 ... --id-offset 2048 --seed 2`):
 
 ```sh
