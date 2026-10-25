@@ -140,11 +140,11 @@ function HeartLive({ bank }: { bank: HeartBank }) {
           if (d && Math.hypot(e.clientX - d[0], e.clientY - d[1]) < 8) ctl.current?.click(e)
         }} />
       <div className="demo-title">
-        <span className="kicker c-ember">Heart · ablation planning</span>
-        <h3>{!scar ? 'Click the tissue to place a scar' : !abl ? 'An arrhythmia forms. Try an ablation line' : 'Does this line stop it?'}</h3>
+        <span className="kicker c-ember">{bank.scars.some(s => s.ablations.length) ? 'Heart · ablation planning' : 'Heart · scar risk'}</span>
+        <h3>{!scar ? 'Click the tissue to place a scar' : !abl ? (scar.ablations.length ? 'An arrhythmia forms. Try an ablation line' : 'An arrhythmia forms around the scar') : 'Does this line stop it?'}</h3>
       </div>
       <SolverCard t={t} run={run} who={bank.mock ? 'Mock forecast' : 'Simula'} className="corner" />
-      {scar && (
+      {scar && scar.ablations.length > 0 && (
         <div className="ablations glass">
           <span className="kicker">Ablation sites</span>
           {scar.ablations.map(a => {
