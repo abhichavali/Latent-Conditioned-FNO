@@ -12,6 +12,17 @@ Per batch of candidate equations, everything vmapped (one compile per template a
                (no blowup, resolved spectrum, not trivial)
   3. pool      POOL ICs simulated for two consecutive 14-step windows (transient + developed dynamics);
                keep the KEEP windows of maximal joint entropy (sample.select)
+
+Supplement (more ICs per equation of an existing dataset, without regenerating it):
+
+  python generate.py --supplement DATASET --extra 12 --out EXTRA --pool 128 --windows 3 [--id-offset I --n N]
+
+rebuilds each equation from its spec.json, re-simulates its identical IC pool with the stored dt / substeps and
+re-runs the selection with the stored windows forced first; writes only the EXTRA new windows to
+EXTRA/eq_XXXX/{u.npy, static.npy, samples.json} (same layout and normalization).  Equations whose stored picks
+repeat (selection poisoned by a blown-up window before the sample.select fix) are reselected from scratch and
+get all K + EXTRA windows instead (len(samples.json) tells which).  --check K instead compares the re-simulated
+stored windows and the unforced selection with DATASET for K equations per template (needs u.npy).
 """
 
 import argparse
@@ -166,23 +177,31 @@ def calibrate(b, u0):
     return phase == 2, dt, S, why
 
 
-def run_pool(b, idx, dt, S, keys, M, nw):
-    """IC pool for equations b[idx] -> selected windows (n, KEEP, F, nf, N, N) f16, static (n, KEEP, N, N), meta."""
-    n = len(idx)
+def run_pool(b, idx, dt, S, keys, M, nw, k=None, forced=None):
+    """IC pool for equations b[idx] -> selected windows (n, k, F, nf, N, N) f16, static (n, k, N, N), meta.
+    forced (n, k) candidate-window indices to pick first, -1 = free (supplement)."""
+    n, k = len(idx), k or KEEP
     u0, fam = sample.ic_pool(keys, b.rows[idx], M)
     A, cm = roll(b, idx, dt, np.repeat(np.asarray(S)[:, None], nw * (F - 1), 1), u0)  # nw consecutive windows
     W = jnp.concatenate([A[:, :, w * (F - 1) : w * (F - 1) + F] for w in range(nw)], 1)  # [ic 0..M-1 @ window 0, ...]
     del A
     h, _, step, _, _ = stats(W, cm)
     valid = h.all(-1) & (step.mean(-1) > 1e-3)
+    nvalid = np.asarray(valid.sum(1))[:n]
     P = W.shape[0]
+    if forced is not None:  # forced windows count as valid; too few valid -> also allow quiet (healthy) windows
+        forced = np.concatenate([forced, np.full((P - n, k), -1)]).astype(np.int32)
+        fm = np.zeros(valid.shape, bool)
+        for r, row in enumerate(forced):
+            fm[r, row[row >= 0]] = True
+        valid = jnp.where((valid.sum(1) < k)[:, None], h.all(-1), valid) | fm
+        forced = jnp.asarray(forced)
     famw = jnp.tile(jnp.concatenate([fam, jnp.repeat(fam[:1], P - n, 0)]), (1, nw))  # family of each candidate window
     late = jnp.tile(jnp.arange(nw * M) >= M, (P, 1))
-    sel = sample.select(W, cm, valid, famw, late, k=KEEP)[:n]
+    sel = sample.select(W, cm, valid, famw, late, forced, k=k)[:n]
     take = jax.vmap(lambda w, s: w[s])
     ics = sel % M
-    return (np.asarray(take(W[:n], sel)), np.asarray(take(u0[:, :, -1], ics)), np.asarray(sel), np.asarray(take(fam, ics)),
-            np.asarray(valid.sum(1))[:n])
+    return np.asarray(take(W[:n], sel)), np.asarray(take(u0[:, :, -1], ics)), np.asarray(sel), np.asarray(take(fam, ics)), nvalid
 
 
 def spec_of(e, eid, C, dt, S, b_shift, b_scale):
@@ -208,21 +227,104 @@ def spec_of(e, eid, C, dt, S, b_shift, b_scale):
     return s
 
 
+def save(out, eid, files):
+    """out/eid/{name: array (.npy) | json object}, written to out/.tmp_eid and renamed (atomic)."""
+    tmp = os.path.join(out, f".tmp_{eid}")
+    os.makedirs(tmp, exist_ok=True)
+    for name, x in files.items():
+        if name.endswith(".npy"):
+            np.save(os.path.join(tmp, name), x)
+        else:
+            with open(os.path.join(tmp, name), "w") as f:
+                json.dump(x, f)
+    os.rename(tmp, os.path.join(out, eid))
+
+
 def writer(out, q):
     while (job := q.get()) is not None:
         eid, spec, u, static = job
-        tmp = os.path.join(out, f".tmp_{eid}")
-        os.makedirs(tmp, exist_ok=True)
-        np.save(os.path.join(tmp, "u.npy"), u)
-        if static is not None:
-            np.save(os.path.join(tmp, "static.npy"), static)
-        with open(os.path.join(tmp, "spec.json"), "w") as f:
-            json.dump(spec, f)
-        os.rename(tmp, os.path.join(out, eid))
+        save(out, eid, {"u.npy": u} | ({} if static is None else {"static.npy": static}) | {"spec.json": spec})
         with open(os.path.join(out, "index.jsonl"), "a") as f:
             f.write(json.dumps({k: spec[k] for k in ("id", "family", "fields", "static", "rhs", "latex", "frame_dt", "L")}) + "\n")
         q.task_done()
     q.task_done()
+
+
+def internal(s):
+    """spec.json -> the sampler's internal equation (field order before the saved permutation), enough for Batch."""
+    n, nf, p = len(s["fields"]), s["template"]["nf"], s["perm"]
+    C = np.zeros((nf, len(T.LIB[nf])))
+    for i, k, c in s["template"]["coef"]:
+        C[i, k] = c
+    fs = list(T.FIELDS[:n])
+    ic = {fs[p[j]]: s["ic"][T.FIELDS[j]] for j in range(n)}  # saved field j = internal field p[j]
+    return {"nf": nf, "n": n, "C": C, "prm": s["prm"], "L": s["L"], "fields": fs, "ic": ic, "static": s["static_ic"]}
+
+
+def supplement(args):
+    ids = [i for i in range(args.id_offset, args.id_offset + args.n) if os.path.exists(f"{args.supplement}/eq_{i:04d}")]
+    todo = ids if args.check else [i for i in ids if not os.path.exists(f"{args.out}/eq_{i:04d}")]
+    specs = [json.load(open(f"{args.supplement}/eq_{i:04d}/spec.json")) for i in todo]
+    k0 = {len(s["samples"]) for s in specs}
+    assert len(k0) <= 1, k0
+    k0 = k0.pop() if k0 else 0
+    log, t0, done, worst, skipped, reselected = open(os.path.join(args.out, "log.jsonl"), "a"), time.time(), 0, [], [], 0
+    for nf in (2, 3):
+        sub = sorted((s for s in specs if s["template"]["nf"] == nf), key=lambda s: s["substeps"])
+        if args.check:  # K equations with distinct stored picks, 2 with repeated ones
+            rep = lambda q: q[:: max(1, len(q) // args.check)][: args.check]
+            dist = lambda s: len({(x["ic"], x["start_frame"]) for x in s["samples"]}) == k0
+            sub = rep([s for s in sub if dist(s)]) + rep([s for s in sub if not dist(s)])[:2]
+        per = max(1, (1024 if nf == 2 else 512) // args.pool)
+        for c in range(0, len(sub), per):
+            g = sub[c : c + per]
+            b = Batch([internal(s) for s in g])
+            keys = jnp.stack([jax.random.fold_in(jax.random.fold_in(jax.random.PRNGKey(s["candidate"]["seed"]), s["candidate"]["index"]), 1)
+                              for s in g])
+            old = np.array([[x["start_frame"] // (F - 1) * args.pool + x["ic"] for x in s["samples"]] for s in g])
+            keep = np.array([len(set(o)) == k0 for o in old])  # repeated picks: reselect everything
+            forced = np.concatenate([np.where(keep[:, None], old, -1), np.full((len(g), args.extra), -1)], 1)
+            dt, S = np.array([s["dt"] for s in g]), np.array([s["substeps"] for s in g])
+            x, static, sel, fam, nvalid = run_pool(b, np.arange(len(g)), dt, S, keys, args.pool, args.windows, k0 + args.extra, forced)
+            if args.check:  # stored windows reproduce, and so does the original (unforced) selection
+                _, _, sel0, _, _ = run_pool(b, np.arange(len(g)), dt, S, keys, args.pool, args.windows, k0)
+                for j, s in enumerate(g):
+                    fresh = {"distinct": len(set(sel[j])) == len(sel[j]), "finite": bool(np.isfinite(x[j]).all())}
+                    if not keep[j]:
+                        print(json.dumps({"id": s["id"], "nf": nf, "family": s["family"], "reselect": fresh, "nvalid": int(nvalid[j])}))
+                        continue
+                    u = np.load(f"{args.supplement}/{s['id']}/u.npy").astype(np.float32)
+                    err = np.abs(x[j][:k0][:, :, s["perm"]].astype(np.float32) - u)
+                    rec = {"id": s["id"], "nf": nf, "family": s["family"], "max_err": float(err.max()),
+                           "mean_err": float(err.mean()), "max_abs_u": float(np.abs(u).max()),
+                           "selection_reproduced": bool((sel0[j] == old[j]).all()), "nvalid": int(nvalid[j]), "extra": fresh}
+                    worst.append(rec)
+                    print(json.dumps(rec), flush=True)
+                continue
+            for j, s in enumerate(g):
+                a = k0 if keep[j] else 0  # first window to write
+                if len(set(sel[j])) < len(sel[j]) or not np.isfinite(x[j][a:]).all():
+                    skipped.append(s["id"])  # too few healthy windows for k0 + extra picks
+                    continue
+                files = {"u.npy": x[j][a:][:, :, s["perm"]]}
+                if s["static"]:
+                    files["static.npy"] = static[j][a:].astype(np.float16)
+                files["samples.json"] = [{"ic": int(i % args.pool), "start_frame": int(i // args.pool) * (F - 1),
+                                          "ic_family": sample.FAM_NAMES[int(f)]} for i, f in zip(sel[j][a:], fam[j][a:])]
+                save(args.out, s["id"], files)
+                done += 1
+            reselected += int((~keep).sum())
+            rec = {"nf": nf, "written": done, "todo": len(todo), "reselected": reselected, "skipped": skipped, "min_nvalid": int(nvalid.min()), "S_max": int(S.max()),
+                   "elapsed_h": round((time.time() - t0) / 3600, 3),
+                   "eta_h": round((len(todo) - done) * (time.time() - t0) / done / 3600, 2)}
+            print(json.dumps(rec), flush=True)
+            log.write(json.dumps(rec) + "\n")
+            log.flush()
+    if args.check:
+        print("check max_err", max(r["max_err"] for r in worst), "selection reproduced",
+              sum(r["selection_reproduced"] for r in worst), "/", len(worst), flush=True)
+    else:
+        print("done", sum(os.path.exists(f"{args.out}/eq_{i:04d}") for i in ids), flush=True)
 
 
 def main():
@@ -240,9 +342,14 @@ def main():
                     help="log-uniform range of the per-frame change (sets each equation's frame interval)")
     ap.add_argument("--permute", type=float, default=0.0, help="probability of shuffling field labels")
     ap.add_argument("--id-offset", type=int, default=0, help="first equation id; lets several GPUs share --out")
+    ap.add_argument("--supplement", help="existing dataset dir: add --extra windows per equation, see top")
+    ap.add_argument("--extra", type=int, default=12)
+    ap.add_argument("--check", type=int, default=0, help="with --supplement: verify reproduction on this many eqs per nf")
     args = ap.parse_args()
     globals()["KEEP"] = args.keep
     os.makedirs(args.out, exist_ok=True)
+    if args.supplement:
+        return supplement(args)
     state_f = os.path.join(args.out, f"state_{args.id_offset}.json" if args.id_offset else "state.json")
     st = json.load(open(state_f)) if os.path.exists(state_f) else {"next_cand": 0}
     ids = {int(d[3:]) for d in os.listdir(args.out) if d.startswith("eq_")}

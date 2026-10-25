@@ -688,10 +688,12 @@ def _features(x, cm):
     return [f.reshape(B, -1) for f in (radial, sectors, amp, rate)]
 
 
-def _greedy_logdet(Kmat, valid, k, noise, group, gcap, late, early_cap):
+def _greedy_logdet(Kmat, valid, k, noise, group, gcap, late, early_cap, forced=None):
     """Greedy maximisation of log det(I + K_S / noise), the GP joint entropy of the chosen set (monotone submodular,
     so greedy is within 1 - 1/e of the best subset; incremental Cholesky, Chen et al. 2018), under caps: at most
-    gcap picks per group (IC family) and at most early_cap from early windows.  Caps are dropped if infeasible."""
+    gcap picks per group (IC family) and at most early_cap from early windows.  Caps are dropped if infeasible.
+    forced (k,) int: pick i is forced[i] where >= 0 (must be valid; counts towards the caps), greedy where -1."""
+    forced = jnp.full(k, -1, jnp.int32) if forced is None else forced
     L = Kmat / noise + jnp.eye(Kmat.shape[0])
     d0 = jnp.where(valid, jnp.diag(L), -jnp.inf)
     G = len(FAM_NAMES)
@@ -700,7 +702,7 @@ def _greedy_logdet(Kmat, valid, k, noise, group, gcap, late, early_cap):
         cis, d, sel, cnt, early = st
         blocked = (cnt[group] >= gcap) | (~late & (early >= early_cap))
         dc = jnp.where(blocked, -jnp.inf, d)
-        j = jnp.argmax(jnp.where(dc.max() > -jnp.inf, dc, d))
+        j = jnp.where(forced[i] >= 0, forced[i], jnp.argmax(jnp.where(dc.max() > -jnp.inf, dc, d)))
         e = (L[j] - cis.T @ cis[:, j]) / jnp.sqrt(d[j])
         return (cis.at[i].set(e), (d - e**2).at[j].set(-jnp.inf), sel.at[i].set(j),
                 cnt.at[group[j]].add(1), early + (~late[j]).astype(jnp.int32))
@@ -710,24 +712,26 @@ def _greedy_logdet(Kmat, valid, k, noise, group, gcap, late, early_cap):
 
 
 @partial(jax.jit, static_argnames=("k",))
-def select(traj, cm, valid, group, late, *, k, noise=1e-2, family_share=0.25, early_share=2 / 3):
-    """traj (E, M, T, C, n, n), cm (E, C), valid / group (IC family) / late (developed window) (E, M)
-    -> (E, k) indices of a capped max-entropy subset per equation."""
+def select(traj, cm, valid, group, late, forced=None, *, k, noise=1e-2, family_share=0.25, early_share=2 / 3):
+    """traj (E, M, T, C, n, n), cm (E, C), valid / group (IC family) / late (developed window) (E, M),
+    optional forced picks (E, k) (-1 = free) -> (E, k) indices of a capped max-entropy subset per equation."""
+    forced = jnp.full((traj.shape[0], k), -1, jnp.int32) if forced is None else forced
     gcap, early_cap = math.ceil(family_share * k), math.ceil(early_share * k)
 
-    def one(x, cm, ok, g, lt):
+    def one(x, cm, ok, g, lt, fo):
         okf, cnt = ok[:, None], jnp.maximum(ok.sum(), 1)
         zs = []
         for f in _features(x.astype(jnp.float32), cm):  # each block gets unit total variance: equal say
-            mu = jnp.sum(f * okf, 0) / cnt
+            f = jnp.where(okf, f, 0.0)  # invalid (blown-up) windows hold inf / nan, and 0 * nan would poison mu
+            mu = jnp.sum(f, 0) / cnt
             var = jnp.sum(((f - mu) * okf) ** 2) / cnt
             zs.append(jnp.where(okf, (f - mu) / jnp.sqrt(var + 1e-12), 0.0))
         z = jnp.concatenate(zs, 1)
         d2 = jnp.maximum(jnp.sum(z**2, 1)[:, None] + jnp.sum(z**2, 1)[None] - 2 * z @ z.T, 0)
         h = jnp.nanmedian(jnp.where(ok[:, None] & ok[None] & ~jnp.eye(len(ok), dtype=bool), d2, jnp.nan))
-        return _greedy_logdet(jnp.exp(-d2 / (h + 1e-6)), ok, k, noise, g, gcap, lt, early_cap)
+        return _greedy_logdet(jnp.exp(-d2 / (h + 1e-6)), ok, k, noise, g, gcap, lt, early_cap, fo)
 
-    return jax.vmap(one)(traj, cm, valid, group, late)
+    return jax.vmap(one)(traj, cm, valid, group, late, forced)
 
 
 if __name__ == "__main__":
@@ -754,4 +758,9 @@ if __name__ == "__main__":
     assert all(len(set(map(int, s))) == 16 for s in sel), sel
     for s, f, lt in zip(np.asarray(sel), np.asarray(fam), np.asarray(late)):  # caps hold: <= 4 per family, <= 11 early
         assert max(np.bincount(f[s])) <= 4 and (~lt[s]).sum() <= 11, (f[s], lt[s])
+    fo = np.full((2, 24), -1, np.int32)  # forcing the first 16 picks reproduces them, then the greedy continues
+    fo[:, :16] = sel
+    sel2 = np.asarray(select(jnp.repeat(x[:, :, None], 11, 2)[:, :, :, :2], jnp.ones((2, 2)), jnp.ones((2, 64), bool), fam,
+                             late, jnp.asarray(fo), k=24))
+    assert (sel2[:, :16] == np.asarray(sel)).all() and all(len(set(s)) == 24 for s in sel2), sel2
     print("sample.py ok")

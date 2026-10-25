@@ -25,6 +25,7 @@ root per field; edges are `[child, parent, arg position]` (position matters only
 | `sample.py` | equation families (transport/waves near SWE, excitable/reaction–diffusion near Aliev–Panfilov, pattern formation, free composition) + SWE / AP building-block subsets, mutations and term dropout; GPU IC pools (7 pattern families, patches, wakes, vortex seeds); max-entropy (greedy log-det over bounded spectral/amplitude/rate features) window selection, capped at 25% per IC family and 2/3 early windows |
 | `generate.py` | per-equation dt / frame-interval calibration, pool rollout over `--windows` consecutive 14-step windows, selection of `--keep` windows, writer; resumable, `--id-offset` lets several GPUs share one `--out` |
 | `coverage.py` | building-block coverage: equations and partner terms per library term, SWE / AP pieces alone and in pairs, terms that always co-occur; for the sampler (`--sample 4096`) or a dataset (`--out DIR`, writes `coverage.json`) |
+| `merge_extra.py` | merges a `--supplement` output into a dataset in place (numpy only) |
 | `demos.py` | shallow water and Aliev–Panfilov as specs, simulated and written for `viz/tsunami` and `viz/heart` |
 
 ## Dataset layout (`/workspace/pdegen/out` on the GPU box)
@@ -42,7 +43,7 @@ root per field; edges are `[child, parent, arg position]` (position matters only
 python generate.py --out /workspace/pdegen/out --pool 512
 ```
 
-**B** — 4096 equations x 18 ICs, current sampler, one worker per GPU (worker 1: `CUDA_VISIBLE_DEVICES=1 ... --id-offset 2048 --seed 2`):
+**B** — 4096 equations x 30 ICs, current sampler: 18 generated, one worker per GPU (worker 1: `CUDA_VISIBLE_DEVICES=1 ... --id-offset 2048 --seed 2`):
 
 ```sh
 CUDA_VISIBLE_DEVICES=0 XLA_PYTHON_CLIENT_MEM_FRACTION=.9 python generate.py --out /workspace/pdegen/out \
@@ -59,6 +60,19 @@ CUDA_VISIBLE_DEVICES=0 XLA_PYTHON_CLIENT_MEM_FRACTION=.9 python generate.py --ou
 
 Extra spec keys in B: `pieces` (SWE / AP blocks present, read off the coefficients), `perm` (saved field j is
 internal field `perm[j]`; `fields`, `rhs`, `ic`, `norm` already renamed to match), `target_change`.
+
+then 12 more per equation by a supplement pass (same pools re-simulated bit-exactly, stored picks forced first),
+merged in place:
+
+```sh
+python generate.py --supplement /workspace/pdegen/out --extra 12 --out /workspace/pdegen/extra --pool 128 --windows 3 \
+    --n 2048 --id-offset 0             # and --id-offset 2048 on GPU 1; --check 5 first verifies the reproduction
+python merge_extra.py B_DIR EXTRA_DIR 18 30   # resumable; removes each supplement dir once merged
+```
+
+The 18-IC selection had a bug, fixed in `sample.select`: one blown-up candidate window (inf / nan) poisoned the
+feature normalization, so 1280 equations picked only ICs 0 and 1 of the first window, alternating (45 of them with
+nan frames).  The supplement reselects those 30 windows from scratch; the other 2816 keep their 18.
 
 ```sh
 python coverage.py --sample 4096                                   # what the sampler draws
