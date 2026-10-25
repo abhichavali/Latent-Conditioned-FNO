@@ -1,0 +1,55 @@
+# Pretraining on dataset A (1024 equations x 73 windows) on pdebox.  B.yaml / AB.yaml only change data.roots.
+name: pretrain_A
+run_root: /workspace/runs
+cache_dir: /workspace/runs/cache          # canonical graph cache (sympy is slow)
+jax_cache: /workspace/jaxcache
+data:
+  roots:                                  # tag makes ids globally unique: A/eq_0012
+    - {tag: A, path: /workspace/pdegen/out}
+  batch: 8                                # (equation, IC window) pairs per step
+  queries: 4                              # random query frames per pair
+  eq_weight_power: 0.5                    # equation sampling weight = (unique train windows) ** power
+  workers: 8                              # loader threads (memory-mapped reads)
+  prefetch: 8                             # batches in flight
+split:
+  seed: 0
+  val_ic_frac: 0.1                        # IC groups held out per training equation
+  val_ic_min_groups: 10                   # equations with fewer unique ICs keep them all for training
+  rehearsal_frac: 0.05
+  rehearsal_band: [0.008, 0.025]          # each held-out structure covers this fraction of equations
+  rehearsal_structures: null              # null = seeded automatic pick; or [[kind:item, kind:item], ...]
+model:
+  width: 64
+  layers: 4
+  modes: 24
+  banks: 4                                # spectral filter banks mixed by softmax(alpha(c))
+  dz: 32
+  n_freq: 16                              # Fourier features of t: 2 * 16 = 32 dims, geometric freqs 1..64
+  max_freq: 64
+  cond_hidden: 256
+  head: 128
+encoder:
+  hidden: 64
+  rounds: 3
+  logsig: [-4.0, 0.5]
+train:
+  seed: 0
+  steps: 220000                           # ~13.5 steps/s on the RTX 5080 -> ~4.5 h
+  lr: 5.0e-4
+  lr_end: 0.05                            # cosine decay to lr * lr_end
+  warmup: 1000
+  enc_lr_mult: 1.5
+  z_lr_mult: 10
+  wd: 1.0e-4
+  clip: 1.0
+  rel_cap: 4.0                            # soft cap on per-term relL2 in the training loss (val is uncapped)
+  lam: 0.01                               # NLL weight after warm-up
+  beta: 1.0e-4                            # |z|^2 penalty
+  p_enc: 0.5                              # encoder-sample probability after warm-up
+  warm_frac: 0.12                         # lam = p = 0 here (ends ~30 min into a 200k-step run)
+  ramp_frac: 0.06                         # then linear ramp to lam, p_enc (full by ~45 min)
+  log_every: 100
+  val_minutes: 10                         # periodic validation (also at every start / resume)
+  val_batches: 24
+  ckpt_minutes: 15
+  keep: 3

@@ -1,0 +1,7 @@
+# A u B: both roots on one machine (copy one dataset next to the other first).
+base: A.yaml
+name: pretrain_AB
+data:
+  roots:
+    - {tag: A, path: /workspace/pdegen/outA}
+    - {tag: B, path: /workspace/pdegen/outB}

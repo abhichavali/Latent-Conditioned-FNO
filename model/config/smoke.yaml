@@ -1,0 +1,10 @@
+# Tiny run: shapes, loss drop, checkpoint / resume, steps/s.
+base: A.yaml
+name: smoke_A
+train:
+  steps: 300
+  warmup: 50
+  log_every: 25
+  val_minutes: 0.3
+  val_batches: 4
+  ckpt_minutes: 0.5
