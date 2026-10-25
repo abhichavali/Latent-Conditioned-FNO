@@ -1,10 +1,13 @@
 import type { SlideDef } from '../deck/SlideFrame'
-import { Frame } from '../components/layouts'
+import { Section } from '../components/layouts'
 
 export default {
   title: 'Results',
   tone: 'sea',
   section: 'Results',
-  Component: () => <Frame title="Results" lede="What a from-scratch FNO needs, and what we're aiming to beat." />,
-  notes: `Section divider.`,
+  Component: () => (
+    <Section mark="Results" title="How many simulations does new physics cost?"
+      lede="First the from-scratch baseline, then where the few-shot model has to land." />
+  ),
+  notes: `Now the numbers. First, what you pay today with a from-scratch FNO; then the bar for our model.`,
 } satisfies SlideDef

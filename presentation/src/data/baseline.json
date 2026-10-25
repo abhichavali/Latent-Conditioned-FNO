@@ -1,0 +1,26 @@
+{
+  "source": "baseline_FNO/RESULTS.md (normalized RMSE of the primary field on 128 held-out ICs; mean ± std over 3 seeds for N <= 64)",
+  "swe": [
+    { "n": 4, "one_step": [0.239, 0.0055], "rollout_mean": [0.592, 0.039], "rollout_final": [0.565, 0.097] },
+    { "n": 8, "one_step": [0.15, 0.0058], "rollout_mean": [0.393, 0.012], "rollout_final": [0.351, 0.0049] },
+    { "n": 16, "one_step": [0.105, 0.006], "rollout_mean": [0.285, 0.019], "rollout_final": [0.265, 0.016] },
+    { "n": 32, "one_step": [0.0815, 0.004], "rollout_mean": [0.209, 0.017], "rollout_final": [0.227, 0.038] },
+    { "n": 64, "one_step": [0.0693, 0.0014], "rollout_mean": [0.162, 0.0057], "rollout_final": [0.162, 0.005] },
+    { "n": 128, "one_step": [0.0554], "rollout_mean": [0.122], "rollout_final": [0.122] },
+    { "n": 256, "one_step": [0.0393], "rollout_mean": [0.081], "rollout_final": [0.0844] },
+    { "n": 512, "one_step": [0.0337], "rollout_mean": [0.0678], "rollout_final": [0.0722] },
+    { "n": 1024, "one_step": [0.0332], "rollout_mean": [0.065], "rollout_final": [0.0703] }
+  ],
+  "ap": [
+    { "n": 4, "one_step": [0.0662, 0.0071], "rollout_mean": [0.457, 0.058], "rollout_final": [0.515, 0.0095] },
+    { "n": 8, "one_step": [0.0364, 0.0029], "rollout_mean": [0.269, 0.024], "rollout_final": [0.401, 0.026] },
+    { "n": 16, "one_step": [0.0233, 0.0013], "rollout_mean": [0.175, 0.011], "rollout_final": [0.304, 0.021] },
+    { "n": 32, "one_step": [0.0167, 0.00049], "rollout_mean": [0.128, 0.0067], "rollout_final": [0.249, 0.015] },
+    { "n": 64, "one_step": [0.014, 0.0001], "rollout_mean": [0.105, 0.0048], "rollout_final": [0.212, 0.011] },
+    { "n": 128, "one_step": [0.0109], "rollout_mean": [0.0706], "rollout_final": [0.153] },
+    { "n": 256, "one_step": [0.00732], "rollout_mean": [0.0438], "rollout_final": [0.0957] },
+    { "n": 512, "one_step": [0.006], "rollout_mean": [0.0344], "rollout_final": [0.0707] },
+    { "n": 1024, "one_step": [0.00569], "rollout_mean": [0.0336], "rollout_final": [0.0719] }
+  ],
+  "slopes": { "swe": { "one_step": -0.35, "rollout_mean": -0.41 }, "ap": { "one_step": -0.43, "rollout_mean": -0.48 } }
+}

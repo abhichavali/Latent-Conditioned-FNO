@@ -47,6 +47,7 @@ export const ANIMS: Record<string, (tl: Tl, el: El, at: string) => void> = {
     tl.fromTo(o, { v: 0 }, { v: to, duration: 1.8, ease: 'power3.out', onUpdate: () => { el.textContent = fmt(o.v, dec) } }, at)
   },
   dim: (tl, el, at) => tl.to(el, { opacity: 0.28, duration: 0.5 }, at),
+  out: (tl, el, at) => tl.to(el, { autoAlpha: 0, duration: 0.4 }, at), // leaves at its step
 }
 
 /** One paused timeline per slide with labels b{k} (step k starts) and s{k} (step k done). */
