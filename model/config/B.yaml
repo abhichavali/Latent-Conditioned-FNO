@@ -1,6 +1,6 @@
-# Dataset B (4096 equations x 18 windows): same code, data root only.  B lives on pdebox2 (/workspace/pdegen/out).
+# Dataset B (4096 equations x 18 windows): same code, data root only.
 base: A.yaml
 name: pretrain_B
 data:
   roots:
-    - {tag: B, path: /workspace/pdegen/out}
+    - {tag: B, path: /workspace/data/B}

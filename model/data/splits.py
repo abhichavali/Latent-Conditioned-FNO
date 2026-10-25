@@ -7,7 +7,12 @@
              combinations stay in training.
   val_ic     ~10% of the IC groups (windows of one pool IC stay together) of each training equation.
   train      everything else.  The SWE / AP targets live outside the datasets and never enter training.
+
+With split.inherit = <earlier splits.json> (A u B warm-started from A): equations of the earlier split keep their
+assignment and val-IC windows, its structures are reused, and only new equations are assigned.
 """
+
+import json
 
 import itertools
 import os
@@ -64,15 +69,22 @@ def choose_structures(sets, frac, band, seed, max_size=3, min_train=10):
 
 def make(eqs, cfg):
     """eqs [Eq] -> {"structures", "train", "rehearsal", "val_ic": {gid: [sample idx]}, "train_windows": {...}}."""
+    prev = json.load(open(cfg["inherit"])) if cfg.get("inherit") else None
+    old_train, old_reh = (set(prev["train"]), set(prev["rehearsal"])) if prev else (set(), set())
     sets = [term_names(e.spec) for e in eqs]
-    structs = cfg.get("rehearsal_structures") or choose_structures(
-        sets, cfg["rehearsal_frac"], cfg["rehearsal_band"], cfg["seed"])
-    reh = [i for i, s in enumerate(sets) if any(set(c) <= s for c in structs)]
+    structs = cfg.get("rehearsal_structures") or (prev["structures"] if prev else choose_structures(
+        sets, cfg["rehearsal_frac"], cfg["rehearsal_band"], cfg["seed"]))
+    reh = [i for i, s in enumerate(sets) if eqs[i].gid in old_reh
+           or (eqs[i].gid not in old_train and any(set(c) <= s for c in structs))]
     reh_set = set(reh)
     r = np.random.default_rng(cfg["seed"] + 1)
     out = {"structures": structs, "train": [], "rehearsal": [eqs[i].gid for i in reh], "val_ic": {}, "train_windows": {}}
     for i, e in enumerate(eqs):
         if i in reh_set:
+            continue
+        if e.gid in old_train:
+            out["train"].append(e.gid)
+            out["val_ic"][e.gid], out["train_windows"][e.gid] = prev["val_ic"][e.gid], prev["train_windows"][e.gid]
             continue
         g = np.unique(e.groups)
         nv = int(round(cfg["val_ic_frac"] * len(g))) if len(g) >= cfg["val_ic_min_groups"] else 0

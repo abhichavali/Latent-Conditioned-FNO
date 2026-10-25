@@ -1,7 +1,12 @@
-# A u B: both roots on one machine (copy one dataset next to the other first).
+# A u B, warm-started from the A run: backbone + encoder weights, A latents by id, new B rows N(0, 0.01^2).
+# A equations keep their A split (and val-IC windows); B equations containing A's held-out structures are rehearsal.
 base: A.yaml
 name: pretrain_AB
 data:
   roots:
-    - {tag: A, path: /workspace/pdegen/outA}
-    - {tag: B, path: /workspace/pdegen/outB}
+    - {tag: A, path: /workspace/data/A}
+    - {tag: B, path: /workspace/data/B}
+split:
+  inherit: /workspace/runs/pretrain_A/splits.json
+train:
+  init_from: /workspace/runs/pretrain_A      # its latest checkpoint, used only when this run has none of its own

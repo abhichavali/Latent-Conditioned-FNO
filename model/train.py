@@ -125,14 +125,18 @@ def make_steps(opt, cap):
     return train_step, eval_step
 
 
-def save(run_dir, step, params, opt_state, keep):
+def save(run_dir, step, params, opt_state, keep, train_s):
+    """ckpt/step_XXXXXXXX.eqx = (params = (fno, encoder, latents), opt_state); .json sidecar: step, training time."""
     d = f"{run_dir}/ckpt"
     os.makedirs(d, exist_ok=True)
     tmp = f"{d}/.tmp.eqx"
     eqx.tree_serialise_leaves(tmp, (params, opt_state))
+    json.dump({"step": step, "train_s": train_s}, open(f"{d}/step_{step:08d}.json", "w"))
     os.replace(tmp, f"{d}/step_{step:08d}.eqx")
     for old in sorted(glob.glob(f"{d}/step_*.eqx"))[:-keep]:
         os.remove(old)
+        if os.path.exists(old[:-4] + ".json"):
+            os.remove(old[:-4] + ".json")
 
 
 def latest(run_dir):
@@ -140,11 +144,32 @@ def latest(run_dir):
     return (c[-1], int(os.path.basename(c[-1])[5:13])) if c else (None, 0)
 
 
+def warm_start(params, src, train):
+    """Initialise from another run's latest checkpoint (e.g. A u B from A): backbone and encoder weights as they are,
+    latent rows copied by equation id ("A/eq_0012"), new equations keep their N(0, 0.01^2) init.  Fresh optimizer."""
+    scfg = yaml.safe_load(open(f"{src}/config.yaml"))
+    s_train = json.load(open(f"{src}/splits.json"))["train"]
+    path, sstep = latest(src)
+    assert path, f"no checkpoint in {src}"
+    sp = build(scfg, len(s_train), jax.random.PRNGKey(0))
+    sopt = optimizer(scfg, sp)
+    sp, _ = eqx.tree_deserialise_leaves(path, (sp, sopt.init(eqx.filter(sp, eqx.is_array))))
+    row = {g: i for i, g in enumerate(s_train)}
+    Z, Zs = np.array(params[2]), np.asarray(sp[2])
+    hit = [i for i, e in enumerate(train) if e.gid in row]
+    Z[hit] = Zs[[row[train[i].gid] for i in hit]]
+    print(f"warm start from {path} (step {sstep}): backbone + encoder, {len(hit)} / {len(train)} latents copied", flush=True)
+    return sp[0], sp[1], jnp.asarray(Z)
+
+
 def setup(cfg, run_dir):
     """Equations, frozen splits, graph table (train rows first, then rehearsal rows)."""
     eqs = adapter.load_equations(cfg["data"]["roots"])
     tags = "+".join(r["tag"] for r in cfg["data"]["roots"])
-    bad = adapter.drop_nonfinite(eqs, f"{cfg['cache_dir']}/nonfinite_{tags}.json")
+    bad = {}
+    for r in cfg["data"]["roots"]:  # cached per root, so A u B reuses A's scan
+        bad.update(adapter.drop_nonfinite([e for e in eqs if e.gid.startswith(r["tag"] + "/")],
+                                          f"{cfg['cache_dir']}/nonfinite_{r['tag']}.json"))
     print(f"non-finite windows dropped: {sum(map(len, bad.values()))} in {len(bad)} equations", flush=True)
     sf = f"{run_dir}/splits.json"
     if os.path.exists(sf):
@@ -190,9 +215,14 @@ def main():
     opt = optimizer(cfg, params)
     opt_state = opt.init(eqx.filter(params, eqx.is_array))
     path, step = latest(run_dir)
+    train_s0 = 0.0
     if path:
         params, opt_state = eqx.tree_deserialise_leaves(path, (params, opt_state))
+        side = path[:-4] + ".json"
+        train_s0 = json.load(open(side))["train_s"] if os.path.exists(side) else 0.0
         print(f"resumed from {path} at step {step}", flush=True)
+    elif t.get("init_from"):
+        params = warm_start(params, t["init_from"], train)
     train_step, eval_step = make_steps(opt, t.get("rel_cap"))
     n_par = sum(x.size for x in jax.tree_util.tree_leaves(eqx.filter(params[0], eqx.is_array)))
     print(f"backbone params {n_par / 1e6:.1f}M, train eqs {len(train)}, rehearsal eqs {len(reh)}", flush=True)
@@ -218,7 +248,8 @@ def main():
 
     def log(rec):
         now = time.time()
-        rec = {"step": step, "time": now, "elapsed_h": (now - t_run) / 3600, "proc_elapsed_s": now - t_proc, **rec}
+        rec = {"step": step, "time": now, "elapsed_h": (now - t_run) / 3600, "train_h": (train_s0 + now - t_proc) / 3600,
+               "proc_elapsed_s": now - t_proc, **rec}
         logf.write(json.dumps(rec) + "\n")
         logf.flush()
         for k, v in rec.items():
@@ -284,7 +315,7 @@ def main():
                 t_val = time.time()
             log(rec)
         if time.time() - t_ck > 60 * t["ckpt_minutes"] or step == total or stop:
-            save(run_dir, step, params, opt_state, t["keep"])
+            save(run_dir, step, params, opt_state, t["keep"], train_s0 + time.time() - t_proc)
             t_ck = time.time()
             log({"ckpt": f"{run_dir}/ckpt/step_{step:08d}.eqx"})
         if stop:
