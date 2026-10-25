@@ -33,8 +33,14 @@ small simulation budget (later phases).
 ## Switching datasets
 
 Only `data.roots` changes: `[{tag: A, path: ...}]`, `[{tag: B, path: ...}]`, or both for A ∪ B (ids stay unique by tag).
-Splits, normalization, counts of equations / ICs / frames are all read from disk. Dataset A lives on `pdebox`
-(`/workspace/pdegen/out`); B (~70 GB) on `pdebox2` (`/workspace/pdegen/out`) — `pdebox` does not have room for it.
+Splits, normalization, counts of equations / ICs / frames are all read from disk. On `pdebox3` (RTX 5090) the data
+lives in `/workspace/data/A` and `/workspace/data/B`.
+
+**Warm start A ∪ B from A** (`config/AB.yaml`): `train.init_from: /workspace/runs/pretrain_A` loads that run's latest
+checkpoint into a run that has none of its own: backbone and encoder weights as they are, latent rows copied by
+equation id (`A/eq_0012`), B rows initialised N(0, 0.01^2), fresh optimizer. `split.inherit:
+/workspace/runs/pretrain_A/splits.json` keeps every A equation's split and val-IC windows and reuses A's held-out
+structures, so B equations containing them are rehearsal too.
 
 ## Running
 
@@ -47,11 +53,12 @@ python targets.py --out /workspace/targets                      # SWE / AP test 
 
 Run dir `<run_root>/<name>/` (`/workspace/runs/pretrain_A/`): `config.yaml` and `splits.json` (frozen at first start),
 `log.jsonl`, `tb/` (TensorBoard), `ckpt/step_XXXXXXXX.eqx` (model, encoder, latents, optimizer state; last 3, every
-15 min), `stdout.log`, `start_time`, `DONE`. Data order and per-step RNG depend only on (seed, step), so a resumed run
+15 min) with a `.json` sidecar (step, training seconds), `stdout.log`, `start_time`, `DONE`. Log lines carry
+`elapsed_h` (wall clock since the run's first start) and `train_h` (training time summed over restarts). Data order and per-step RNG depend only on (seed, step), so a resumed run
 continues exactly. Restarting `run.sh` (or the loop itself after a crash) resumes from the latest checkpoint.
 
 Watch: `tail -f /workspace/runs/pretrain_A/stdout.log`, or
-`tensorboard --logdir /workspace/runs --port 6006` then `ssh -N -L 6006:localhost:6006 pdebox`.
+`tensorboard --logdir /workspace/runs --port 6006` then `ssh -N -L 6006:localhost:6006 pdebox3`.
 
 Stop cleanly (keeps checkpoints; `train.py` checkpoints on SIGTERM): kill the loop first, then python:
 `pkill -f '[r]un.sh config/A.yaml'; pkill -TERM -f '[t]rain.py --config config/A.yaml'`.
