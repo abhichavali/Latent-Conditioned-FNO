@@ -16,6 +16,10 @@ Encoder freeze (enc_freeze): even so q collapsed to one z for every equation (ac
 variation is noise and the encoder's best early move is a constant z.  For the first enc_freeze of the steps the
 encoder stays at its random init and z = mu (no sampling): the decoder first learns to use those fixed, G- and
 C-dependent features, then the encoder trains (and beta ramps) from there.
+Third run: at the end of the freeze (step 6k) context helped (val k0 0.839 -> k64 0.799, no-graph k0 0.850 -> k16 0.804),
+then within 1.3k steps of unfreezing (beta ramp start, KL ~800 nats) zstd fell 0.55 -> 0.002 and k0..k64 were equal
+again.  So beta = 0 (the predictive half anchors q(z | G, C); rel is not a log-likelihood, so beta * KL in nats far
+outweighed the ~0.04 rel the context buys) and the encoder learns at enc_lr x the lr from its useful random init.
 Non-finite updates are skipped; a log window
 with only non-finite steps exits without a checkpoint (run.sh resumes from the last finite one).
 
@@ -80,7 +84,7 @@ def posterior(enc, b, G, masks, tkeep=None):
     return jax.vmap(enc)(g, b["cx"], b["cst"], b["caux"], b["cpres"], b["logT"], b["logL"], masks)
 
 
-def make_steps(opt, cap, g_drop=0.0):
+def make_steps(opt, cap, g_drop=0.0, enc_lr=1.0):
     @eqx.filter_jit
     def train_step(params, opt_state, b, G, key, beta, on):
         def loss_fn(params):
@@ -107,8 +111,8 @@ def make_steps(opt, cap, g_drop=0.0):
             return loss, {"loss": loss, **aux}
 
         (_, aux), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(params)
-        grads = (grads[0], jax.tree_util.tree_map(lambda g: g * on, grads[1]))  # encoder frozen while on = 0
         upd, opt_state = opt.update(grads, opt_state, eqx.filter(params, eqx.is_array))
+        upd = (upd[0], jax.tree_util.tree_map(lambda u: u * (on * enc_lr), upd[1]))  # encoder: frozen while on = 0, then lr x enc_lr
         aux["gnorm"] = optax.global_norm(grads)
         return eqx.apply_updates(params, upd), opt_state, aux
 
@@ -168,7 +172,7 @@ def main():
         side = path[:-4] + ".json"
         train_s0 = json.load(open(side))["train_s"] if os.path.exists(side) else 0.0
         print(f"resumed from {path} at step {step}", flush=True)
-    train_step, eval_step = make_steps(opt, t.get("rel_cap"), t.get("g_drop", 0.0))
+    train_step, eval_step = make_steps(opt, t.get("rel_cap"), t.get("g_drop", 0.0), t.get("enc_lr", 1.0))
     npar = lambda m: sum(x.size for x in jax.tree_util.tree_leaves(eqx.filter(m, eqx.is_array)))
     print(f"params: fno {npar(params[0]) / 1e6:.1f}M, context encoder {npar(params[1]) / 1e6:.2f}M; train eqs {len(tr)}, "
           f"rehearsal eqs {len(reh)}", flush=True)
