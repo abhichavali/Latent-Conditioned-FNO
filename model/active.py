@@ -456,6 +456,21 @@ def summary(a):
     fig.tight_layout()
     fig.savefig(f"{a.results}/headline_{key}.png", dpi=150)
     json.dump(table, open(f"{a.results}/sims_to_target_{key}.json", "w"), indent=1)
+    # deck: curves per method (stage B "ft" and latent-only), scratch, and for each scratch reference N the sims each
+    # method needs to reach scratch's error there (log-linear interpolation between rounds) and the ratio N / sims
+    deck = {"metric": key, "metric_note": "relL2 per frame of the primary field, physical units, mean over 100 test ICs",
+            "targets": {}}
+    for t, r in table.items():
+        dt = {"scratch": [{"sims": int(N), "error": e} for N, e in sorted(r["scratch_curve"].items(), key=lambda x: int(x[0]))],
+              "methods": {}, "fewer": {}}
+        for m in runs[t]:
+            for br in ("ft", "latent"):
+                name = m if br == "ft" else f"{m}_latent"
+                dt["methods"][name] = [{"sims": n, "error": e} for n, e in r[m][br]["curve"]]
+                dt["fewer"][name] = {str(N): {"scratch_error": r["scratch_curve"][N], "sims": v, "x_fewer": (int(N) / v if v else None)}
+                                     for N, v in r[m][br]["sims_to_scratch_at"].items() if v is not None}
+        deck["targets"][t] = dt
+    json.dump(deck, open(f"{a.results}/deck_{key}.json", "w"), indent=1)
     print(json.dumps(table, indent=1))
 
 
