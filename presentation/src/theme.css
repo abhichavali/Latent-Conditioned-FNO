@@ -392,9 +392,10 @@ p { margin: 0; }
 
 /* 7 · where else */
 .domains { display: grid; grid-template-columns: repeat(4, 1fr); gap: 28px; margin-top: 72px; }
-.where-3d { margin-top: 48px; max-width: 52ch; font: 300 32px / 1.4 var(--sans); color: var(--ink-2); }
+.where .domains { margin-top: 48px; }
+.where-3d { margin-top: 40px; max-width: 72ch; font: 300 30px / 1.4 var(--sans); color: var(--ink-2); }
 .where-3d b { color: var(--ink); font-weight: 500; }
-.where .footnote { margin-top: 18px; }
+.where .footnote { margin-top: 10px; }
 .domain { display: flex; flex-direction: column; align-items: center; gap: 34px; padding: 72px 24px 60px; text-align: center; font: 400 30px / 1.2 var(--sans); color: var(--ink); }
 .line-icon { width: 190px; height: 190px; overflow: visible; }
 .line-icon * { fill: none; stroke: var(--tone); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }

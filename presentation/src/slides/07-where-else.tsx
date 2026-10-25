@@ -46,8 +46,8 @@ export default {
         ))}
       </div>
       <p className="where-3d" {...build(0, 'fade', 1.1)}><b>Next: 3D.</b> A 3D fluid simulation (CFD) can take hours. AI surrogates already compute car drag <b>26,000×</b> faster than GPU CFD<sup>1</sup>: hours become seconds.</p>
-      <p className="punch" {...build(1, 'words')}>Anywhere people wait on physics simulations.</p>
       <p className="footnote" {...build(0, 'fade', 1.3)}><sup>1</sup> Li et al., Geometry-Informed Neural Operator for Large-Scale 3D PDEs, NeurIPS 2023.</p>
+      <p className="punch wide" {...build(1, 'words')}>Anywhere people wait on physics simulations.</p>
     </div>
   ),
   notes: `(3:35–3:50)

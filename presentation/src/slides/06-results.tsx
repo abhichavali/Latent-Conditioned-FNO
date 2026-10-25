@@ -35,7 +35,7 @@ export default {
           <Stat value={results.fewer_simulations} decimals={dec(results.fewer_simulations)} unit="×" step={0}
             label={<><b>fewer simulations</b> than a standard AI model to reach the same accuracy (heart; wildfire 2×)</>} />
           <Stat value={speedup} decimals={dec(speedup)} unit="×" step={0}
-            label={<><b>faster</b> per forecast than the simulator · {batch.scenarios.toLocaleString('en-US')} scenarios in {batch.simula_seconds === null ? '—' : fmtDuration(batch.simula_seconds)}</>} />
+            label={<><b>faster</b> per forecast than the simulator · <span style={{ whiteSpace: 'nowrap' }}>{batch.scenarios.toLocaleString('en-US')} scenarios in {batch.simula_seconds === null ? '—' : fmtDuration(batch.simula_seconds)}</span></>} />
         </div>
         <div className="chart-box" {...build(1, 'fade')}>
           <Chart width={880} height={470} logX logY xDomain={xDomain} yDomain={yDomain} xTicks={ticks(...xDomain)} yTicks={ticks(...yDomain)}
