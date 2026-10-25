@@ -43,7 +43,7 @@ KEYS = ("u0", "st", "pres", "aux", "logT", "logL")
 
 
 # ---------------------------------------------------------------- model, priors
-def brief(r, keys=("raw_slot0", "raw_all", "rel_all")):
+def brief(r, keys=("raw_slot0", "rel_slot0", "rel_all")):
     return {m: [round(v[k], 4) for k in keys] for m, v in r.items() if isinstance(v, dict)}
 
 
@@ -357,6 +357,7 @@ def main():
         log("data roots missing or skipped: val-IC / rehearsal / calibration not run")
         R["note"] = "val-IC / rehearsal skipped (data roots not on this box)"
         save()
+        plot(R, out)
         return
     eqs = {e.gid: e for e in adapter.load_equations(cfg["data"]["roots"])}
     adapter.drop_nonfinite(list(eqs.values()), f"{cfg['cache_dir']}/nonfinite_{'+'.join(r['tag'] for r in cfg['data']['roots'])}.json")
@@ -429,25 +430,31 @@ def main():
 
 
 def plot(R, out):
+    """Zero-shot bars: data sets (val-IC, rehearsal) in the training metric rel_all (their physical relL2 is dominated by
+    trajectories whose truth is ~0), targets in raw_slot0 (physical, = the scratch baseline's metric)."""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    sets = [k for k in R if k in ("val_ic", "rehearsal") or k.startswith("target/")]
-    modes = ["z_table", "graph_mu", "generic_mu", "graph_K32", "generic_K32", "persistence"]
-    colors = {"z_table": "#4c72b0", "graph_mu": "#2a9d8f", "generic_mu": "#e9c46a", "graph_K32": "#264653",
+    modes = ["z_table", "swap", "graph_mu", "generic_mu", "graph_K32", "generic_K32", "persistence"]
+    colors = {"z_table": "#4c72b0", "swap": "#c44e52", "graph_mu": "#2a9d8f", "generic_mu": "#e9c46a", "graph_K32": "#264653",
               "generic_K32": "#f4a261", "persistence": "#999999"}
-    fig, ax = plt.subplots(figsize=(1.8 * len(sets) + 2, 3.6))
+    groups = [([k for k in ("val_ic", "rehearsal") if k in R], "rel_all", "relL2 (training metric), all fields"),
+              ([k for k in R if k.startswith("target/")], "raw_slot0", "relL2 per frame, primary field (physical)")]
+    groups = [g for g in groups if g[0]]
+    fig, axes = plt.subplots(1, len(groups), figsize=(9, 3.6), squeeze=False)
     w = 0.8 / len(modes)
-    for k, m in enumerate(modes):
-        xs = [i for i, s in enumerate(sets) if m in R[s]]
-        ax.bar([x + (k - len(modes) / 2 + 0.5) * w for x in xs], [R[sets[x]][m]["raw_slot0"] for x in xs], w, label=m, color=colors[m])
-    ax.set_xticks(range(len(sets)), [s.replace("target/", "") for s in sets])
-    ax.set_ylabel("relL2 per frame, primary field")
-    ax.set_title(f"zero-shot, step {R['step']}")
-    ax.legend(fontsize=7, frameon=False, ncol=3)
-    ax.spines[["top", "right"]].set_visible(False)
+    for ax, (sets, key, ylab) in zip(axes[0], groups):
+        for k, m in enumerate(modes):
+            xs = [i for i, s in enumerate(sets) if m in R[s]]
+            if xs:
+                ax.bar([x + (k - len(modes) / 2 + 0.5) * w for x in xs], [R[sets[x]][m][key] for x in xs], w, label=m, color=colors[m])
+        ax.set_xticks(range(len(sets)), [s.replace("target/", "") for s in sets])
+        ax.set_ylabel(ylab, fontsize=8)
+        ax.spines[["top", "right"]].set_visible(False)
+    axes[0][0].legend(fontsize=7, frameon=False, ncol=2)
+    fig.suptitle(f"zero-shot, step {R['step']}", fontsize=10)
     fig.tight_layout()
     fig.savefig(f"{out}/zero_shot.png", dpi=150)
 

@@ -262,9 +262,12 @@ def run(a):
 
 
 # ---------------------------------------------------------------- summary: headline plot, sims to target error
-def curve(path, key):
+def curve(path, key, branch="latent"):
+    """history.jsonl -> (n_sims, test error); branch "ft" = stage B (round 0 = the shared zero-shot point)."""
     H = [json.loads(l) for l in open(path)]
-    return np.array([h["n_sims"] for h in H]), np.array([h["test"][key] for h in H])
+    H = [h for h in H if branch == "latent" or h["round"] == 0 or "ft" in h]
+    get = lambda h: h["ft"]["test"][key] if branch == "ft" and "ft" in h else h["test"][key]
+    return np.array([h["n_sims"] for h in H]), np.array([get(h) for h in H])
 
 
 def scratch_curve(path, key):
@@ -311,10 +314,14 @@ def summary(a):
             h = f"{a.results}/active/{t}_{m}/history.jsonl"
             if not os.path.exists(h):
                 continue
-            n, e = curve(h, key)
-            ax.plot(np.maximum(n, 1), e, "o-", color=colors[m], label=names[m], ms=3)
-            row[m] = {"zero_shot": float(e[0]), "final": float(e[-1]), "n_final": int(n[-1]),
-                      "sims_to_target": sims_to(np.maximum(n, 1e-9), e, target) if target is not None else None}
+            row[m] = {}
+            for br, ls, lab in (("ft", "o-", " (stage B)"), ("latent", "s--", " (latent only)")):
+                n, e = curve(h, key, br)
+                ax.plot(np.maximum(n, 1), e, ls, color=colors[m], label=names[m] + lab, ms=3, lw=1.6 if br == "ft" else 1.0,
+                        alpha=1.0 if br == "ft" else 0.7)
+                row[m][br] = {"zero_shot": float(e[0]), "final": float(e[-1]), "n_final": int(n[-1]),
+                              "sims_to_target": sims_to(n, e, target) if target is not None else None,
+                              "curve": [[int(x), float(y)] for x, y in zip(n, e)]}
         if sc is not None and target is not None:
             row["scratch"] = {"sims_to_target": sims_to(sc[0].astype(float), sc[1], target)}
         table[t] = row
