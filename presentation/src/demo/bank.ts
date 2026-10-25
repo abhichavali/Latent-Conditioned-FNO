@@ -9,6 +9,7 @@ type Timing = { simula_seconds: number | null; solver_seconds: number | null }
 type Point = { sims: number; error: number }
 export type Results = {
   placeholder: boolean
+  speedup_shown?: number
   fewer_simulations: number | null
   timing: { tsunami: Timing; heart: Timing; batch: Timing & { scenarios: number } }
   rehearsal: Record<'tsunami' | 'heart' | 'batch', { simula_seconds: number; solver_seconds: number }>

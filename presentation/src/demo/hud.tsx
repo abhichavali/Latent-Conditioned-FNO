@@ -1,22 +1,24 @@
 // Overlays shared by the hook and the demo: the solver-vs-Simula race card, posters, bank status.
 import { useEffect, useRef, type ReactNode } from 'react'
-import { Missing, fmtClock, fmtDuration, type timing } from './bank'
+import { Missing, results, type timing } from './bank'
 
 type T = ReturnType<typeof timing>
 
-/** The race: the solver's clock runs at real speed toward its measured time; Simula's finishes at its own. run = restart key, 0 = idle. */
+/** The race, to scale but without seconds: the solver's bar fills over SLOW x its measured time, Simula finishes at SLOW x its own. run = restart key, 0 = idle. */
+export const SLOW = 20
+export const shownX = () => results.speedup_shown ?? 10
 export function SolverCard({ t, run, who = 'Simula', className = '' }: { t: T; run: number; who?: string; className?: string }) {
   const clock = useRef<HTMLSpanElement>(null), bar = useRef<HTMLElement>(null), state = useRef<HTMLSpanElement>(null), sim = useRef<HTMLSpanElement>(null)
   useEffect(() => {
     let id = 0
     const t0 = performance.now()
     const tick = () => {
-      const s = run ? (performance.now() - t0) / 1000 : 0, p = Math.min(s / t.solver, 1)
+      const s = run ? (performance.now() - t0) / 1000 / SLOW : 0, p = Math.min(s / t.solver, 1)
       if (!clock.current || !bar.current || !state.current || !sim.current) return // unmounting
-      clock.current.textContent = fmtClock(Math.min(s, t.solver))
+      clock.current.textContent = !run ? '' : p < 1 ? `${Math.floor(p * 100)}%` : 'done'
       bar.current.style.transform = `scaleX(${p})`
-      state.current.textContent = !run ? 'waiting' : p < 1 ? `still computing… ${Math.floor(p * 100)}%` : `done in ${fmtDuration(t.solver)}`
-      sim.current.textContent = !run ? '—' : s < t.simula ? 'computing…' : `✓ ${fmtDuration(t.simula)}`
+      state.current.textContent = !run ? 'waiting' : p < 1 ? 'still computing…' : 'done'
+      sim.current.textContent = !run ? '—' : s < t.simula ? 'computing…' : `✓ ${shownX()}× faster`
       if (run && p < 1) id = requestAnimationFrame(tick)
     }
     tick()
@@ -24,11 +26,11 @@ export function SolverCard({ t, run, who = 'Simula', className = '' }: { t: T; r
   }, [run, t.solver, t.simula])
   return (
     <div className={`race glass ${className}`}>
-      <div className="race-row"><b>Numerical solver</b><span ref={clock} className="clock">00:00.0</span></div>
+      <div className="race-row"><b>Numerical solver</b><span ref={clock} className="clock" /></div>
       <div className="meter"><i ref={bar} /></div>
       <span ref={state} className="state" />
       <div className="race-row win"><b>{who}</b><span ref={sim} className="clock" /></div>
-      {t.placeholder && <span className="ph">placeholder timing</span>}
+      <span className="ph">relative speed, to scale{t.placeholder ? ' · placeholder timing' : ''}</span>
     </div>
   )
 }

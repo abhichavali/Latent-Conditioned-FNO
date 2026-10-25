@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { loadBank, loadFrames, nearest, timing, useAsync, type HeartBank, type Scar } from './bank'
 import { Clip, HeartEngine, mount, surface } from './engines'
-import { BankStatus, MockBadge, SolverCard } from './hud'
+import { BankStatus, MockBadge, SLOW, SolverCard, shownX } from './hud'
 
 export function HeartDemo() {
   const bank = useAsync(() => loadBank('heart'), [])
@@ -81,7 +81,7 @@ function HeartLive({ bank }: { bank: HeartBank }) {
       loadFrames('heart', file, bank.grid).then(fr => {
         if (me !== token) return
         clip.loop = loop
-        clip.play(fr, t.simula)
+        clip.play(fr, t.simula * SLOW)
         then?.()
         setRun(r => r + 1)
       }, e => setError(e.message))
@@ -159,6 +159,7 @@ function HeartLive({ bank }: { bank: HeartBank }) {
         </div>
       )}
       {verdict !== undefined && <div className={`verdict ${verdict ? 'ok' : 'no'}`}>{verdict ? '✓ Arrhythmia stopped' : '✗ Still spiralling'}</div>}
+      <p className="demo-hint">Every rollout {shownX()}× faster than the simulator · fast enough to screen thousands of scar layouts</p>
       {bank.mock && <MockBadge what="baseline FNO, drawn-in ablations, not Simula" />}
       {error && <div className="bank-status"><strong>Demo error</strong><p>{error}</p></div>}
     </div>

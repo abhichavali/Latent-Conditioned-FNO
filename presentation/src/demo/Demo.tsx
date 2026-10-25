@@ -6,7 +6,7 @@ import { useMode, useStep } from '../deck/SlideFrame'
 import { reduced } from '../deck/motion'
 import { fmtDuration, loadBank, loadFrames, nearest, results, timing, useAsync, type TsunamiBank } from './bank'
 import { Clip, etaMax, riskLayer, tsunami } from './engines'
-import { BankStatus, MockBadge, Poster, SolverCard } from './hud'
+import { BankStatus, MockBadge, Poster, SLOW, SolverCard, shownX } from './hud'
 import { HeartDemo } from './HeartDemo'
 
 const TABS = ['Tsunami', 'Flood-risk map', 'Heart']
@@ -117,7 +117,7 @@ function TsunamiLive({ bank, risk }: { bank: TsunamiBank; risk: boolean }) {
         loadFrames('tsunami', s.frames, bank.grid).then(fr => {
           if (dead || current !== id || mode !== 'quake') return
           engine.etaMax = etaMax(bed, fr)
-          clip.play(fr, t.simula) // the forecast appears after Simula's measured time
+          clip.play(fr, t.simula * SLOW) // the forecast appears after Simula's measured time, on the race card's scale
           setSel(id); setRun(r => r + 1)
         }, e => !dead && setError(e.message))
       }
@@ -204,7 +204,7 @@ function TsunamiLive({ bank, risk }: { bank: TsunamiBank; risk: boolean }) {
         <>
           <div className="demo-title"><span className="kicker c-sea">Tsunami forecast</span><h3>Drag the epicentre</h3></div>
           <SolverCard t={t} run={run} who={who} className="corner" />
-          <p className="demo-hint">Snaps to {bank.scenarios.length} precomputed earthquakes · now: {sel || '…'}</p>
+          <p className="demo-hint">Every forecast {shownX()}× faster than the simulator · {bank.scenarios.length} precomputed Simula forecasts · wave height exaggerated for visibility{sel ? '' : ' · loading…'}</p>
         </>
       ) : (
         <>
@@ -215,8 +215,8 @@ function TsunamiLive({ bank, risk }: { bank: TsunamiBank; risk: boolean }) {
               {riskState === 'idle' && <button className="btn big" onMouseDown={noFocus} onClick={() => ctl.current?.runRisk()}>Run {n.toLocaleString('en-US')} earthquakes</button>}
               {riskState === 'done' && (
                 <p className="risk-time">
-                  forecast <b>{fmtDuration(tb.simula)}</b> · solver <b>{fmtDuration(tb.solver)}</b>
-                  <small>timing for {batch.toLocaleString('en-US')} scenarios{tb.placeholder ? ' · placeholder timing' : ''}</small>
+                  <b>{batch.toLocaleString('en-US')} forecasts in {fmtDuration(tb.simula)}</b>
+                  <small>the whole coast, every earthquake{tb.placeholder ? ' · placeholder timing' : ''}</small>
                 </p>
               )}
               <div className="legend-bar"><i /><span>shallow</span><span>deep flooding</span></div>

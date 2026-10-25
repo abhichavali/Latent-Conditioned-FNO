@@ -8,18 +8,22 @@ export default {
   Component: Demo,
   notes: `(1:40–3:10) The demo is half the talk. → / ← switch tabs; clicking the tabs works too.
 
+Frame everything in thousands: a forecaster doesn't run one scenario, they run thousands.
+
 TSUNAMI (drag in the map)
-- Drag the epicentre. The forecast updates instantly while the solver card on the right is still counting.
-- "An earthquake here... instant forecast. The solver is still running."
-- Move it once or twice more. Every move restarts the solver's clock.
+- Drag the epicentre. Simula's forecast lands while the solver card is still computing.
+- "A forecaster has to consider thousands of possible earthquakes. Each one, Simula forecasts ten times faster than the simulator."
+- Move it once or twice more. Every move restarts the race.
 
 FLOOD-RISK MAP (→)
 - Click "Run 1,000 earthquakes". The map fills in over the coast with the counter.
-- "1,000 earthquakes, every stretch of coast, in about five seconds."
+- "Here are a thousand earthquakes at once: every stretch of coast, flood risk for each, in about five seconds."
+- (Wave heights in the 3D view are exaggerated for visibility; the hint line says so.)
 
 HEART (→)
-- Click the tissue to place a scar: "Place a scar, and a spiral (the arrhythmia) forms, instantly."
-- Click the ablation lines (or the buttons on the right) one by one: "Try this line... still spiralling. This one... stopped."
+- Click the tissue to place a scar: "Place a scar, and a spiral (the arrhythmia) forms around it."
+- "A cardiologist would want to screen thousands of scar layouts and treatment plans. At ten times the speed of the simulator, that becomes practical."
+- Try two or three scar positions. (There's no ablation step: in our simulator an ablation line slows the wave but never blocks it.)
 
 If anything breaks: "Backup: play video" (top right) plays public/demo/backup.mp4. Esc closes it.
 A "Mock data" badge means you're on the rehearsal bank, not Simula's predictions.`,

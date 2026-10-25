@@ -2,9 +2,9 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { useMode } from '../deck/SlideFrame'
-import { fmtClock, fmtDuration, loadBank, loadFrames, timing, useAsync, type TsunamiBank } from './bank'
+import { loadBank, loadFrames, timing, useAsync, type TsunamiBank } from './bank'
 import { Clip, etaMax, tsunami } from './engines'
-import { BankStatus, Poster } from './hud'
+import { BankStatus, Poster, SLOW, shownX } from './hud'
 
 // closer than the engine's default: the island and the coast fill the frame
 const VIEW = { pos: new THREE.Vector3(-58, 26, 58), target: new THREE.Vector3(-4, 0, 8) }
@@ -16,8 +16,6 @@ export function Hook() {
   if (!bank.value) return <div className="hook"><BankStatus kind="tsunami" error={bank.error} /></div>
   return <HookLive bank={bank.value} />
 }
-
-const SLOW = 20 // measured timings are sub-second; the race plays in slow motion, the clocks show real time
 
 function HookLive({ bank }: { bank: TsunamiBank }) {
   const left = useRef<HTMLDivElement>(null), right = useRef<HTMLDivElement>(null)
@@ -53,17 +51,17 @@ function HookLive({ bank }: { bank: TsunamiBank }) {
           slow.tick(dt, (a, b, k) => L.engine.setFrames(a, b, k))
         }
         if (!clock.current || !bar.current || !lState.current || !rClock.current || !rState.current) return // unmounting
-        clock.current.textContent = fmtClock(Math.min(s, t.solver))
+        clock.current.textContent = p < 1 ? `${Math.floor(p * 100)}%` : 'done'
         bar.current.style.transform = `scaleX(${p})`
-        lState.current.textContent = p < 1 ? `still computing · ${Math.floor(p * 100)}%` : `done in ${fmtDuration(t.solver)}`
-        rClock.current.textContent = fmtClock(Math.min(s, t.simula))
-        rState.current.textContent = s < t.simula ? 'computing…' : `done in ${fmtDuration(t.simula)}`
+        lState.current.textContent = p < 1 ? 'still computing…' : 'done'
+        rClock.current.textContent = s < t.simula ? '' : `${shownX()}×`
+        rState.current.textContent = s < t.simula ? 'computing…' : `done, ${shownX()}× faster`
       }
     }, e => !dead && setError(e.message))
     return () => { dead = true; dispose() }
   }, [bank, t.simula, t.solver])
 
-  const tags = [SLOW > 1 && `slowed ${SLOW}×`, t.placeholder && 'placeholder timing', bank.mock && 'mock frames (baseline FNO, not Simula)'].filter(Boolean)
+  const tags = ['relative speed, to scale', t.placeholder && 'placeholder timing', bank.mock && 'mock frames (baseline FNO, not Simula)'].filter(Boolean)
   return (
     <>
       <div className="hook">
@@ -71,7 +69,7 @@ function HookLive({ bank }: { bank: TsunamiBank }) {
           <div ref={left} className="engine" />
           <div className="hud-top">
             <b><i className="dot" />Numerical solver</b>
-            <span ref={clock} className="clock">00:00.0</span>
+            <span ref={clock} className="clock" />
           </div>
           <div className="hud-bottom"><div className="meter"><i ref={bar} /></div><span ref={lState} className="state" /></div>
         </div>
@@ -79,7 +77,7 @@ function HookLive({ bank }: { bank: TsunamiBank }) {
           <div ref={right} className="engine" />
           <div className="hud-top">
             <b><i className="dot" />{bank.mock ? 'Mock · baseline FNO' : 'Simula'}</b>
-            <span ref={rClock} className="clock">00:00.0</span>
+            <span ref={rClock} className="clock" />
           </div>
           <div className="hud-bottom"><span ref={rState} className="state" /></div>
         </div>
