@@ -1,5 +1,5 @@
 #!/bin/bash
-# Restart loop around train.py: resumes from the latest checkpoint until the run writes DONE.  Launch detached:
+# Restart loop around train.py (TRAIN=train_ctx.py for v3): resumes from the latest checkpoint until the run writes DONE.  Launch detached:
 #   setsid nohup bash run.sh config/A.yaml > /dev/null 2>&1 < /dev/null & disown
 # Log: <run_root>/<name>/stdout.log.  Stop: pkill -f '[r]un.sh config/A.yaml'; pkill -f '[t]rain.py --config config/A.yaml'
 cd "$(dirname "$0")"
@@ -11,7 +11,7 @@ mkdir -p "$RUN"
 export XLA_PYTHON_CLIENT_MEM_FRACTION=${MEM:-0.85}
 while [ ! -f "$RUN/DONE" ]; do
   echo "$(date) start $CFG $*" >> "$RUN/stdout.log"
-  python train.py --config "$CFG" "$@" >> "$RUN/stdout.log" 2>&1
+  python ${TRAIN:-train.py} --config "$CFG" "$@" >> "$RUN/stdout.log" 2>&1
   code=$?
   [ -f "$RUN/DONE" ] && break
   echo "$(date) exited $code, restarting in 30s" >> "$RUN/stdout.log"

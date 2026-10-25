@@ -44,8 +44,9 @@ class GraphEncoder(eqx.Module):
         self.slot = 0.1 * jax.random.normal(k[-2], (F_MAX, H))
         self.rho = eqx.nn.MLP(H, 2 * dz, 2 * H, 2, activation=jax.nn.gelu, key=k[-1])
 
-    def __call__(self, g):
-        """g: one equation's padded arrays (data/canon.pad row) -> mu (dz,), log sigma (dz,)."""
+    def terms(self, g):
+        """g: one equation's padded arrays (data/canon.pad row) -> per-term psi(term) + field-slot embedding (T, H),
+        zero on padded terms (the tokens before the sum; v3 context encoder)."""
         nm, em = g["node_mask"][:, None], g["edge_mask"][:, None]
         n = nm.shape[0]
         child, parent, pos = g["edges"][:, 0], g["edges"][:, 1], g["edges"][:, 2]
@@ -56,8 +57,11 @@ class GraphEncoder(eqx.Module):
             m_dn = jax.ops.segment_sum(lin(down, h[parent]) * em, child, n)
             h = _ln(h + lin(upd, jnp.concatenate([h, m_up, m_dn], -1))) * nm
         psi = jax.ops.segment_sum(h, g["node_term"], g["term_mask"].shape[0])
-        psi = (lin(self.term, psi) + self.slot[g["term_slot"]]) * g["term_mask"][:, None]
-        out = self.rho(_ln(psi.sum(0)))
+        return (lin(self.term, psi) + self.slot[g["term_slot"]]) * g["term_mask"][:, None]
+
+    def __call__(self, g):
+        """g: one equation's padded arrays (data/canon.pad row) -> mu (dz,), log sigma (dz,)."""
+        out = self.rho(_ln(self.terms(g).sum(0)))
         mu = _ln(out[: self.dz])
         logsig = self.lo + (self.hi - self.lo) * jax.nn.sigmoid(out[self.dz :])
         return mu, logsig

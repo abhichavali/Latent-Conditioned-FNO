@@ -1,0 +1,60 @@
+# v3: amortized context-conditioned latent q(z | G, C) (models/context.py) + wider FNO, Neural-Process objective, A u B
+# from scratch.  Splits = pretrain_AB's frozen splits.json (copied at first start), so rehearsal stays held out.
+name: ctx
+run_root: /workspace/runs
+cache_dir: /workspace/runs/cache          # canonical graphs + non-finite scans (shared with v1)
+ctx_cache: /workspace/ctxcache            # data/ctx.py context features (build once)
+jax_cache: /workspace/jaxcache
+data:
+  roots:
+    - {tag: A, path: /workspace/data/A}
+    - {tag: B, path: /workspace/data/B}
+  eqs: 8                                  # equations per step
+  targets: 2                              # target windows per equation (Q); 8 x 2 x 4 queries = v1's 64 forwards
+  queries: 4
+  k_max: 16                               # context windows
+  p0: 0.2                                 # P(k = 0); else k log-uniform on 1..k_max
+  eq_weight_power: 0.5
+  workers: 12
+  prefetch: 6
+split:
+  copy_from: /workspace/runs/pretrain_AB/splits.json
+model:
+  width: 96
+  layers: 6
+  modes: 24
+  banks: 4
+  dz: 128
+  n_freq: 16
+  max_freq: 64
+  cond_hidden: 512
+  head: 128
+  rank: 8
+  remat: true
+encoder:
+  hidden: 64                              # graph encoder (v1 sizes)
+  rounds: 3
+  d: 256
+  heads: 8
+  sim_layers: 2
+  agg_layers: 4
+  sim_tokens: 4
+  logsig: [-4.0, 0.5]
+train:
+  seed: 0
+  steps: 120000                           # launch passes the measured --steps
+  lr: 5.0e-4
+  lr_end: 0.05
+  warmup: 1000
+  wd: 1.0e-4
+  clip: 1.0
+  rel_cap: 4.0
+  beta: 1.0e-3                            # KL(q(z|G,C u T) || q(z|G,C)) weight (nats summed over dz)
+  beta_warm: 0.005                        # beta = 0 for this fraction of steps, then linear ramp
+  beta_ramp: 0.05
+  log_every: 100
+  val_minutes: 20
+  val_batches: 12
+  val_k: [0, 1, 2, 5, 8, 16]
+  ckpt_minutes: 20
+  keep: 2
