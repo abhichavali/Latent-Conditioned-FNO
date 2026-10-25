@@ -127,6 +127,8 @@ def run(a):
     out = a.out or f"/workspace/results/{rname(a.run, path)}/active/{a.target}_{a.method}"
     os.makedirs(out, exist_ok=True)
     log = lambda *x: print(f"[{time.strftime('%H:%M:%S')}]", *x, flush=True)
+    if os.path.exists(f"{out}/DONE"):  # finished (ft.eqx removed): nothing to resume
+        return log(f"{out} is done")
     p = active.Target(a.target)
     ns = p.test.items[0][0].ns
     fno, enc = ev.adapt_statics(fno, ns), adapt_statics_ctx(enc, ns)
