@@ -44,7 +44,7 @@ class Batch:
 
     def __init__(self, es):
         self.es, self.nf = es, es[0]["nf"]
-        self.C = np.stack([T.encode(e, self.nf) for e in es]).astype(np.float32)
+        self.C = np.stack([e["C"] if "C" in e else T.encode(e, self.nf) for e in es]).astype(np.float32)
         self.prm = np.array([e["prm"] for e in es], np.float32)
         self.L = np.array([e["L"] for e in es], np.float32)
         self.rows = np.stack([sample.ic_arrays(e) for e in es])
@@ -187,7 +187,7 @@ def run_pool(b, idx, dt, S, keys, M, nw):
 
 def spec_of(e, eid, C, dt, S, b_shift, b_scale):
     n, nf = e["n"], e["nf"]
-    s = {"id": eid, "family": e["family"], "tags": list(e["tags"]), "fields": e["fields"],
+    s = {"id": eid, "family": e["family"], "tags": list(e["tags"]), "pieces": e.get("pieces", []), "fields": e["fields"],
          "static": ["a"] if e["static"] else [], "rhs": T.rhs_strings(e["fields"], C, e["prm"], nf),
          "L": e["L"], "N": N, "order": 2, "dt": float(dt), "substeps": int(S), "frames": F, "frame_dt": float(dt * S),
          "ic": e["ic"], "static_ic": e["static"], "prm": [float(x) for x in e["prm"]],

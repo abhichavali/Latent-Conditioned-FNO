@@ -24,6 +24,7 @@ root per field; edges are `[child, parent, arg position]` (position matters only
 | `template.py` | 2- and 3-field coefficient templates: an equation is a coefficient matrix over a fixed term library, so one compile serves all equations, vmapped over equations × ICs; specs are generated from the coefficients |
 | `sample.py` | equation families (transport/waves near SWE, excitable/reaction–diffusion near Aliev–Panfilov, pattern formation, free composition) + mutations; GPU IC pools (7 pattern families, patches, wakes, vortex seeds); max-entropy (greedy log-det over bounded spectral/amplitude/rate features) window selection, capped at 25% per IC family and 2/3 early windows |
 | `generate.py` | per-equation dt / frame-interval calibration, pool rollout over two 14-step windows, selection of 73 windows, writer |
+| `coverage.py` | building-block coverage: equations and partner terms per library term, SWE / AP pieces alone and in pairs, terms that always co-occur; for the sampler (`--sample 4096`) or a dataset (`--out DIR`, writes `coverage.json`) |
 | `demos.py` | shallow water and Aliev–Panfilov as specs, simulated and written for `viz/tsunami` and `viz/heart` |
 
 ## Dataset layout (`/workspace/pdegen/out` on the GPU box)

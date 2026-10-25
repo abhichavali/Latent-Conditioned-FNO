@@ -33,7 +33,8 @@ def new(r, family, n, L):
     return {"family": family, "fields": fs, "L": float(L), "tags": set(), "static": None, "dt0": 0.1,
             "prm": [lu(r, 2, 20), float(r.uniform(-0.5, 0.5)), lu(r, 0.1, 1)],
             "ic": {f: {"mean": 0.0, "amp": 1.0, "mode": "any"} for f in fs},
-            "terms": {f: {"L": {}, "P": 0, "X": 0, "Y": 0, "Q": 0, "D": {}} for f in fs}}
+            "terms": {f: {"L": {}, "P": 0, "X": 0, "Y": 0, "Q": 0, "D": {}} for f in fs},
+            "core": {f: {"L": {}, "P": 0, "X": 0, "Y": 0, "Q": 0, "D": {}} for f in fs}}  # kept by dropout
 
 
 def lin(e, f, op, c):
@@ -49,6 +50,24 @@ def add(e, f, kind, expr):
     e["terms"][f][kind] = e["terms"][f][kind] + expr
 
 
+def addc(e, f, kind, expr):  # a building block the family is built around: never dropped
+    e["core"][f][kind] = e["core"][f][kind] + expr
+
+
+SWE_PIECES = ("flux", "adv", "grad", "bathy")  # div(h u), u.grad u, g grad h, bathymetry coupling
+AP_PIECES = ("cubic", "uv", "gate")  # cubic reaction, -u v, v / (u + mu) recovery gate
+
+
+def pick(r, pieces, size_p, forbidden):
+    """Random subset of building blocks with a given size distribution (so every single and every pair is common);
+    subsets containing the forbidden core are redrawn."""
+    while True:
+        k = int(r.choice(len(size_p), p=size_p))
+        sel = frozenset(str(x) for x in r.choice(pieces, k, replace=False)) if k else frozenset()
+        if not forbidden <= sel:
+            return sel
+
+
 def ic(e, f, mean, amp, mode="any"):
     e["ic"][f] = {"mean": float(mean), "amp": float(amp), "mode": mode}
 
@@ -57,7 +76,7 @@ def ic(e, f, mean, amp, mode="any"):
 def transport(r):
     L = lu(r, 5, 50)
     dx = L / N
-    n = int(r.choice([1, 2, 3], p=[0.2, 0.35, 0.45]))
+    n = int(r.choice([1, 2, 3], p=[0.15, 0.25, 0.6]))
 
     def visc(e, f, U):
         if r.random() < 0.3:
@@ -65,29 +84,29 @@ def transport(r):
         else:
             diff(e, f, lu(r, 0.3, 2) * U * dx)
 
-    if n == 3:
+    if n == 3:  # shallow-water building blocks, each alone and in pairs (never flux + adv + grad together)
         e = new(r, "transport/shallow-like", 3, L)
         H, g = lu(r, 0.5, 2), lu(r, 0.5, 2)
         c = math.sqrt(g * H)
-        flux, adv = r.random() < 0.4, r.random() < 0.4
-        if flux:
-            add(e, "u", "X", -u * v), add(e, "u", "Y", -u * w), ic(e, "u", H, 0.15 * H)
-            e["tags"].add("flux")
-        elif r.random() < 0.45:  # linear waves over a variable medium (bathymetry-like)
-            add(e, "u", "X", -a * v), add(e, "u", "Y", -a * w), ic(e, "u", 0, 0.3 * H)
+        pc = pick(r, SWE_PIECES, [0.05, 0.35, 0.45, 0.15], frozenset({"flux", "adv", "grad"}))
+        e["tags"] |= set(pc)
+        if "bathy" in pc:  # depth from a static bathymetry field a
+            depth, total = a, False
             e["static"] = {"mean": H, "amp": 0.4 * H}
-            e["tags"].add("medium")
-        else:
-            add(e, "u", "X", -H * v), add(e, "u", "Y", -H * w), ic(e, "u", 0, 0.3 * H)
-        if flux and r.random() < 0.3:
+        else:  # constant depth, or none when u is itself the total height carried by the nonlinear flux
+            total = "flux" in pc and r.random() < 0.5
+            depth = 0 if total else H
+        addc(e, "u", "X", -depth * v), addc(e, "u", "Y", -depth * w)
+        if "flux" in pc:
+            addc(e, "u", "X", -u * v), addc(e, "u", "Y", -u * w)
+        ic(e, "u", H if total else 0, (0.15 if total else 0.3) * H)
+        if "grad" in pc:
+            addc(e, "v", "X", -g * u), addc(e, "w", "Y", -g * u)
+        elif r.random() < 0.5:  # a different pressure law: not the g grad h block
             add(e, "v", "X", -g / (2 * H) * u**2), add(e, "w", "Y", -g / (2 * H) * u**2)
             e["tags"].add("grad_sq")
-        else:
-            add(e, "v", "X", -g * u), add(e, "w", "Y", -g * u)
-            e["tags"].add("grad_lin")
-        if adv:
-            add(e, "v", "P", -v * vx - w * vy), add(e, "w", "P", -v * wx - w * wy)
-            e["tags"].add("adv")
+        if "adv" in pc:
+            addc(e, "v", "P", -v * vx - w * vy), addc(e, "w", "P", -v * wx - w * wy)
         if r.random() < 0.35:
             fc = lu(r, 0.5, 5) * 2 * math.pi * c / L
             add(e, "v", "P", fc * w), add(e, "w", "P", -fc * v)
@@ -165,9 +184,9 @@ def transport(r):
 
 
 # ---------------------------------------------------------------- excitable / reaction-diffusion (near Aliev-Panfilov)
-EXCITABLE = ("fhn", "barkley", "nagumo", "ms", "oregonator")
-KIN_P = {"fhn": 0.14, "barkley": 0.12, "nagumo": 0.16, "ms": 0.12, "oregonator": 0.08,
-         "grayscott": 0.1, "brusselator": 0.08, "schnakenberg": 0.08, "predprey": 0.12}
+EXCITABLE = ("fhn", "barkley", "composite", "ms", "oregonator")
+KIN_P = {"fhn": 0.1, "barkley": 0.09, "composite": 0.35, "ms": 0.09, "oregonator": 0.06,
+         "grayscott": 0.08, "brusselator": 0.06, "schnakenberg": 0.06, "predprey": 0.11}
 
 
 def excitable(r):
@@ -188,28 +207,30 @@ def excitable(r):
         add(e, "u", "P", u * (1 - u) * (u - (v + B) / A) / eps), add(e, "v", "P", u - v)
         ic(e, "u", 0, 1, "patch"), ic(e, "v", 0, r.uniform(0.3, 1), "patch")
         rate = 1 / eps
-    elif kin == "nagumo":
+    elif kin == "composite":  # Aliev-Panfilov building blocks, each alone and in pairs (never all three)
+        pc = pick(r, AP_PIECES, [0.1, 0.45, 0.45], frozenset(AP_PIECES))
+        e["tags"] |= set(pc)
         k, th = r.uniform(5, 10), r.uniform(0.05, 0.25)
-        add(e, "u", "P", k * u * (1 - u) * (u - th))
-        x = r.random()
-        if x < 0.4:
-            add(e, "u", "P", -u * v), e["tags"].add("uv")
-        elif x < 0.8:
-            add(e, "u", "P", -v)
+        if "cubic" in pc:
+            addc(e, "u", "P", k * u * (1 - u) * (u - th))
+        elif r.random() < 0.5:  # bistable switch without a cubic: u relaxes to G(u), a smooth step at th
+            e["prm"][:2] = [r.uniform(8, 25), th]
+            addc(e, "u", "P", k / 2 * (G - u)), e["tags"].add("switch")
         else:
-            add(e, "u", "P", -lu(r, 0.5, 2) * u * v * v)
+            addc(e, "u", "P", k / 4 * u * (1 - u)), e["tags"].add("logistic")
+        addc(e, "u", "P", -u * v if "uv" in pc else -lu(r, 0.5, 1.5) * v)
         gam, eps = r.uniform(0.5, 2), lu(r, 0.002, 0.05)
-        gate = r.choice(["const", "tanh", "rational"], p=[0.5, 0.25, 0.25])
-        if gate == "const":
-            gv = r.choice(["lin", "ap_v", "quad"])
-            G_v = {"lin": u - gam * v, "ap_v": -v - k * u * (u - th - 1), "quad": -v + gam * u**2}[gv]
-            add(e, "v", "P", eps * G_v)
-        elif gate == "tanh":
-            e["prm"][:2] = [lu(r, 5, 30), r.uniform(0.1, 0.5)]
-            add(e, "v", "P", (eps + lu(r, 0.01, 0.2) * G) * (u - gam * v)), e["tags"].add("tanh_gate")
-        else:
+        if "gate" in pc:
             e["prm"][2] = r.uniform(0.1, 0.5)
-            add(e, "v", "P", (eps + lu(r, 0.05, 0.3) * v * R) * (u - gam * v)), e["tags"].add("rational_gate")
+            addc(e, "v", "P", (eps + lu(r, 0.05, 0.3) * v * R) * (u - gam * v))
+        else:
+            gv = str(r.choice(["lin", "ap_v", "tanh"]))
+            if gv == "tanh":
+                if "switch" not in e["tags"]:
+                    e["prm"][:2] = [lu(r, 5, 30), r.uniform(0.1, 0.5)]
+                addc(e, "v", "P", (eps + lu(r, 0.01, 0.2) * G) * (u - gam * v)), e["tags"].add("tanh_gate")
+            else:
+                addc(e, "v", "P", eps * (u - gam * v if gv == "lin" else -v - k * u * (u - th - 1)))
         ic(e, "u", 0, 1, "patch"), ic(e, "v", 0, r.uniform(0.5, 2), "patch")
         rate = k
     elif kin == "ms":  # two-current (Mitchell-Schaeffer-like) gating with a smooth activation G(u)
@@ -368,11 +389,13 @@ def mutate(r, e, scale):
         kind = str(r.choice(["P", "X", "Q", "D", "L"], p=[0.55, 0.15, 0.1, 0.05, 0.15]))
         if kind == "P":
             add(e, f, "P", c * sp.sympify(str(r.choice(_p_slots(e))).format(f=f), locals=SYM))
-        elif kind == "X":  # flux of a degree <= 2 monomial along x or y
+        elif kind == "X":  # flux of a degree <= 2 monomial along x or y, or of a static coefficient times a field
             m = SYM[g] * (SYM[str(r.choice(F))] if r.random() < 0.5 else 1)
+            if e["static"] and r.random() < 0.3:
+                m = a * SYM[g]
             add(e, f, str(r.choice(["X", "Y"])), c * dx * m)
-        elif kind == "Q":
-            add(e, f, "Q", c * dx**2 * SYM[g])
+        elif kind == "Q":  # cross-diffusion, or nonlinear (porous-medium) diffusion lap(g^3) with a stable sign
+            add(e, f, "Q", (c * SYM[g] if r.random() < 0.7 else abs(c) * SYM[f] ** 3) * dx**2)
         elif kind == "D":
             e["terms"][f]["D"][(f, g)] = e["terms"][f]["D"].get((f, g), 0.0) + c * dx**2
         else:  # advection, dispersion or hyperdiffusion
@@ -415,22 +438,73 @@ def free(r):
 FAMILIES = {"transport": (transport, 0.3), "excitable": (excitable, 0.3), "pattern": (pattern, 0.2), "free": (free, 0.2)}
 
 
-def holdout(e):
-    t = e["tags"]
-    return {"flux", "adv", "grad_lin"} <= t or {"nagumo", "uv", "rational_gate"} <= t
+def dropout(r, e, p):
+    """Drop each non-diffusive term independently, so terms a family always emits together also appear apart.
+    Diffusion operators (dxx dyy bih, div(a grad f)) and core building blocks are kept."""
+    for f, t in e["terms"].items():
+        for kind in "PXYQ":
+            t[kind] = sp.Add(*[x for x in sp.Add.make_args(sp.expand(t[kind])) if r.random() >= p])
+        t["L"] = {op: c for op, c in t["L"].items() if op in ("dxx", "dyy", "bih") or r.random() >= p}
+        t["D"] = {kk: c for kk, c in t["D"].items() if kk == ("a", f) or r.random() >= p}
+
+
+def merge_core(e):
+    for f, t in e.pop("core").items():
+        for kind in "PXYQ":
+            add(e, f, kind, t[kind])
+        for op, c in t["L"].items():
+            lin(e, f, op, c)
+        for kk, c in t["D"].items():
+            e["terms"][f]["D"][kk] = e["terms"][f]["D"].get(kk, 0.0) + c
+
+
+def pieces(C, nf, n):
+    """SWE / AP building blocks present in a coefficient matrix (internal roles: SWE h, velocity, velocity;
+    AP activator, recovery).  Read off the coefficients, so terms added by mutations count too."""
+    idx = {(kind, item): k for k, (kind, item) in enumerate(LIB[nf])}
+    has = lambda i, kind, item: i < n and (kind, item) in idx and C[i, idx[(kind, item)]] != 0
+    out = set()
+    if n == 3:
+        if has(0, "X", "u*v") or has(0, "Y", "u*w"):
+            out.add("flux")
+        if any(has(i, "P", m) for i in (1, 2) for m in ("v*{f}x", "w*{f}y")):
+            out.add("adv")
+        if has(1, "X", "u") or has(2, "Y", "u"):
+            out.add("grad")
+        if has(0, "X", "a*v") or has(0, "Y", "a*w"):
+            out.add("bathy")
+    if n >= 2:
+        if has(0, "P", "u*u*u"):
+            out.add("cubic")
+        if has(0, "P", "u*v"):
+            out.add("uv")
+        if any(has(1, "P", m) for m in ("R*v", "R*u*v", "R*v*v")):
+            out.add("gate")
+    return out
+
+
+def holdout(ps):
+    return {"flux", "adv", "grad"} <= ps or set(AP_PIECES) <= ps
 
 
 def equation(r):
+    from template import encode
+
     while True:
         name = str(r.choice(list(FAMILIES), p=[p for _, p in FAMILIES.values()]))
         e = FAMILIES[name][0](r)
         if name != "free":
-            rate = 0.1 / e["dt0"] if name == "excitable" else 1.0
-            mutate(r, e, rate)
-        if not holdout(e):
-            e["tags"] = sorted(e["tags"])
-            e["n"] = len(e["fields"])
-            e["nf"] = 3 if e["n"] == 3 else 2
+            mutate(r, e, 0.1 / e["dt0"] if name == "excitable" else 1.0)
+        if r.random() < 0.6:
+            dropout(r, e, 0.1)
+            e["tags"].add("dropout")
+        merge_core(e)
+        e["n"] = len(e["fields"])
+        e["nf"] = 3 if e["n"] == 3 else 2
+        e["C"] = encode(e, e["nf"])
+        ps = pieces(e["C"], e["nf"], e["n"])
+        if not holdout(ps):
+            e["pieces"], e["tags"] = sorted(ps), sorted(e["tags"])
             return e
 
 
@@ -664,7 +738,7 @@ if __name__ == "__main__":
         s = rhs_strings(e["fields"], C, e["prm"], e["nf"])
         if i < 300:
             pde.parse({"fields": e["fields"], "static": ["a"], "rhs": s})
-        assert not holdout({"tags": set(e["tags"])})
+        assert not holdout(set(e["pieces"]))
         fams[e["family"]] = fams.get(e["family"], 0) + 1
     print({k: fams[k] for k in sorted(fams)})
     es = [e for e in (equation(r) for _ in range(50)) if e["nf"] == 2][:2]
