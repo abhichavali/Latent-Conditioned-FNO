@@ -166,14 +166,15 @@ def make_ft(fno0, lr, pull, cap=4.0, full=True):
     return w0, frozen, opt, step
 
 
-def make_stage_c(fno0, lr=2e-4, cap=4.0, batch=16):
+def make_stage_c(fno0, lr=2e-4, cap=4.0, batch=16, max_steps=2000, lr_end=1.0):
     """Stage C: fine-tune every backbone weight (spectral banks, lift incl. static slot 1, skip convs, conditioning MLP,
     head) AND one latent z on the acquired sims with the training loss.  After each Adam step the weights are pulled
     toward the pretrained ones, w <- w - pull_N (w - w0), with pull_N = pull0 * n0 / N decaying with the data; early
     stopping on held-out acquired sims (index % 7 == 3, ~15%, at least one) and the best state is kept.  Warm-start by
     passing the previous round's params.  Returns (init params (w0, z) maker, fit); fno = eqx.combine(params[0], static)."""
     w0, static = eqx.partition(fno0, eqx.is_array)
-    opt = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(lr))
+    sched = optax.cosine_decay_schedule(lr, max_steps, lr_end) if lr_end < 1 else lr  # restarts every round (opt.init)
+    opt = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(sched))
 
     def pred(params, d, si, qi):
         fno, z = eqx.combine(params[0], static), params[1]
@@ -197,7 +198,7 @@ def make_stage_c(fno0, lr=2e-4, cap=4.0, batch=16):
         y, pres = pred(params, d, si, qi)
         return train.rel_l2(y[:, None], d["y"][si, qi][:, None], pres)[0] * len(si)
 
-    def fit(params, data, rng, pull0=1e-3, n0=5, max_steps=2000, every=100, patience=4):
+    def fit(params, data, rng, pull0=1e-3, n0=5, max_steps=max_steps, every=100, patience=4):
         d, n = data
         Q = d["y"].shape[1]
         vi = [i for i in range(n) if i % 7 == 3] or [n - 1]
@@ -243,7 +244,7 @@ def run(a):
         w = eqx.tree_deserialise_leaves(f"{out}/ft.eqx", w0) if os.path.exists(f"{out}/ft.eqx") else w0
         ft_ost = ft_opt.init(w)
     if a.ft_steps and a.stage == "c":  # stage C branch (make_stage_c), same place in the record ("ft")
-        c_init, c_static, c_fit = make_stage_c(fno, a.c_lr)
+        c_init, c_static, c_fit = make_stage_c(fno, a.c_lr, max_steps=a.c_steps, lr_end=a.c_lr_end)
         cp = c_init(prior["mu"])
         cp = eqx.tree_deserialise_leaves(f"{out}/ft.eqx", cp) if os.path.exists(f"{out}/ft.eqx") else cp
     rng = np.random.default_rng([a.seed, 7])
@@ -300,7 +301,7 @@ def run(a):
         e = test_error(fno, p, z)
         if a.ft_steps and a.stage == "c":
             t1 = time.time()
-            cp, info = c_fit(cp, data, rng, a.c_pull, 5, a.c_steps)
+            cp, info = c_fit(cp, data, rng, a.c_pull, 5, a.c_steps, patience=a.c_patience)
             e_ft = test_error(eqx.combine(cp[0], c_static), p, np.asarray(cp[1])[None])
             eqx.tree_serialise_leaves(f"{out}/ft.tmp.eqx", cp)
             os.replace(f"{out}/ft.tmp.eqx", f"{out}/ft.eqx")
@@ -347,17 +348,17 @@ def replay(a):
     ics, trj, sts = st["ics"], st["traj"], (None if st["st"].dtype == object else st["st"])
     rng, z = np.random.default_rng(0), prior["mu"][None]
     if a.stage == "c":
-        c_init, c_static, c_fit = make_stage_c(fno, a.c_lr)
+        c_init, c_static, c_fit = make_stage_c(fno, a.c_lr, max_steps=a.c_steps, lr_end=a.c_lr_end)
         cp = c_init(prior["mu"])
     else:
         w0, frozen, opt, step = make_ft(fno, a.ft_lr, a.ft_pull, full=a.ft_full)
         w, ost = w0, opt.init(w0)
-    out = open(f"{a.dir}/replay_{a.stage}.jsonl", "w")
+    out = open(f"{a.dir}/replay_{a.stage}{a.tag}.jsonl", "w")
     for N in [h["n_sims"] for h in H if h["round"] > 0]:
         t0 = time.time()
         data = ev.fit_data(ev.prep(ics[:N], None if sts is None else sts[:N], p.T, p.L), trj[:N])
         if a.stage == "c":
-            cp, info = c_fit(cp, data, rng, a.c_pull, 5, a.c_steps)
+            cp, info = c_fit(cp, data, rng, a.c_pull, 5, a.c_steps, patience=a.c_patience)
             e = test_error(eqx.combine(cp[0], c_static), p, np.asarray(cp[1])[None])
         else:
             (d, n), info = data, {"steps": a.ft_steps}
@@ -464,6 +465,9 @@ def main():
     ap.add_argument("--c_lr", type=float, default=3e-4)
     ap.add_argument("--c_pull", type=float, default=1e-3, help="stage C: pull toward pretrained at N = 5, decays as 5 / N")
     ap.add_argument("--c_steps", type=int, default=2000, help="stage C: max steps per round (early stopping)")
+    ap.add_argument("--c_patience", type=int, default=4, help="stage C: validations (every 100 steps) without improvement")
+    ap.add_argument("--c_lr_end", type=float, default=1.0, help="stage C: cosine decay to lr * this within each round (1 = constant)")
+    ap.add_argument("--tag", default="", help="replay: suffix of the output file")
     ap.add_argument("--run", default="/workspace/runs/pretrain_A")
     ap.add_argument("--ckpt")
     ap.add_argument("--target", default="swe")
