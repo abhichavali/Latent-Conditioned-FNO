@@ -81,6 +81,16 @@ def save(path, x):
     np.save(path, x)
 
 
+def upsample(x, k):
+    """(n, T, N, N) -> (n, (T - 1) k + 1, N, N): motion-compensated in-between frames (baseline_FNO/interp.py)."""
+    if k == 1:
+        return x
+    sys.path.append(os.path.join(HERE, "..", "baseline_FNO"))
+    import interp
+
+    return np.stack([interp.upsample(f[:, None], k)[:, 0] for f in x])
+
+
 # ---------------------------------------------------------------- tsunami: epicentre grid + risk map
 SWE_FIXED = dict(src0_on=1, src0_angle=0.0, src0_amp=1.6, src0_width=0.05, src0_length=0.18, src0_sub_on=1,
                  src0_sub_side=1, src0_sub_off=1.85, src0_sub_amp=0.5)  # dramatic but typical; depression landward
@@ -90,17 +100,18 @@ def tsunami(a):
     out, s = f"{a.out}/tsunami", targets.SPECS["swe"]
     pred = load(a.models, "swe")
     _, _, bvis, _ = demos.coast(s)
-    land, q = bvis > 0, a.q_swe
+    land, q, k = bvis > 0, a.q_swe, a.interp
+    qo = (q - 1) * k + 1  # stored frames: Simula at q model times, k - 1 interpolated frames in between
     (_, xlo, xhi), (_, ylo, yhi) = (r for r in targets.RANGES["swe"] if r[0] in ("src0_x", "src0_y"))
     X, Y = np.meshgrid(np.linspace(xlo, xhi, a.nx), np.linspace(ylo, yhi, a.ny))
     P = params("swe", X.size, **SWE_FIXED, src0_x=X.ravel(), src0_y=Y.ravel())
     ics, st = targets.make_ics("swe", P)
     t0 = time.time()
-    eta = chain(pred, ics, st, 1, q)[:, :, 0]
-    eta_s = solve("swe", ics, st, 1, q)[:, :, 0]
+    eta = upsample(chain(pred, ics, st, 1, q)[:, :, 0], k)
+    eta_s = solve("swe", ics, st, 1, qo)[:, :, 0]  # the solver's true frames at every stored time
     h, h_s = np.maximum(eta - bvis, 0), np.maximum(eta_s - bvis, 0)
     flood = (h.max(1) * land).sum((1, 2))  # flood volume proxy: sum over land of the max depth
-    on = np.arange(1, q) % ((q - 1) // (s["frames"] - 1)) == 0  # fine times that are the solver's own frames
+    on = np.arange(1, qo) % ((qo - 1) // (s["frames"] - 1)) == 0  # fine times that are the solver's own frames
     err = np.array([[relL2(eta[i, 1:][m], eta_s[i, 1:][m]) for m in (on, ~on)] for i in range(len(P))])
     print(f"tsunami: {len(P)} scenarios {time.time() - t0:.0f}s; eta relL2 on-frame {err[:, 0].mean():.3f} "
           f"off-frame {err[:, 1].mean():.3f}", flush=True)
@@ -125,12 +136,13 @@ def tsunami(a):
     d = sc[int(np.argmax(flood))]["id"]
     idx = {"version": 1, "mock": False, "note": (
         f"Simula ({a.models}/swe) vs the GPU pseudo-spectral solver, {len(P)} epicentres on the sampler's source region "
-        f"(x {xlo}-{xhi}, y {ylo}-{yhi} of the square), other knobs fixed {SWE_FIXED}; Simula queried directly at "
-        f"{q} times per 140 s window. eta relL2 vs solver: {err[:, 0].mean():.3f} at the solver's 10 s frames, "
-        f"{err[:, 1].mean():.3f} in between. h = max(eta - b, 0), b = demos.coast visual bed. Risk: {a.risk} random "
+        f"(x {xlo}-{xhi}, y {ylo}-{yhi} of the square), other knobs fixed {SWE_FIXED}; Simula at its {q} frames per "
+        f"140 s window, {k - 1} motion-compensated frames in between (baseline_FNO/interp.py); solver track = true "
+        f"solver frames at every stored time. eta relL2 vs solver: {err[:, 0].mean():.3f} at Simula's frames, "
+        f"{err[:, 1].mean():.3f} at the interpolated ones. h = max(eta - b, 0), b = demos.coast visual bed. Risk: {a.risk} random "
         f"sampler quakes (seed {a.seed}), Simula at 10 s frames, cumulative max over the first k/{K}."),
         "grid": {"nx": s["N"], "ny": s["N"], "lx": s["L"] * 1e3, "ly": s["L"] * 1e3}, "bed": "b.npy",
-        "dt": round(s["frame_dt"] * targets.KS * (s["frames"] - 1) / (q - 1), 4), "time_unit": "s",
+        "dt": round(s["frame_dt"] * targets.KS * (s["frames"] - 1) / (qo - 1), 4), "time_unit": "s",
         "view": {"vexag": 4, "wexag": 6}, "default": d, "scenarios": sc,
         "risk": {"frames": "risk_map.npy", "count": a.risk, "unit": "m"}}
     json.dump(idx, open(f"{out}/index.json", "w"), indent=1)
@@ -148,16 +160,26 @@ def seg_mask(p0, p1, half, N=128, edge=0.007):
     return 0.5 * (1 + np.tanh((half - r) / edge))
 
 
-def lines_from(c, r, lengths=(0.3, 0.45), n_ang=8, lo=0.03, hi=0.97):
-    """Candidate ablation lines from the scar edge outward: n_ang angles x lengths, clipped inside [lo, hi]^2."""
+def ray(p, u, s, lo=0.03, hi=0.97):
+    """Longest step <= s from p along u that stays inside [lo, hi]^2."""
+    return min([s] + [(b - p[k]) / u[k] for k in (0, 1) for b in (lo, hi) if abs(u[k]) > 1e-9 and (b - p[k]) / u[k] > 0])
+
+
+def lines_from(c, r, rng=None, n_rand=0, lengths=(0.3, 0.45), n_ang=8):
+    """Candidate ablation lines inside the box: from the scar edge outward (n_ang angles x lengths), plus n_rand random
+    long segments anywhere (through or between the spiral cores)."""
     out = []
     for L in lengths:
         for th in np.arange(n_ang) * 2 * np.pi / n_ang:
             u = np.array([np.cos(th), np.sin(th)])
             p0 = np.asarray(c) + 0.8 * r * u
-            s = min([L] + [(b - p0[k]) / u[k] for k in (0, 1) for b in (lo, hi) if abs(u[k]) > 1e-9 and (b - p0[k]) / u[k] > 0])
+            s = ray(p0, u, L)
             if s > 0.1:
                 out.append((p0, p0 + s * u))
+    for _ in range(n_rand):
+        p, th, L = rng.uniform(0.15, 0.85, 2), rng.uniform(0, np.pi), rng.uniform(0.3, 0.8)
+        u = np.array([np.cos(th), np.sin(th)])
+        out.append((p - ray(p, -u, L / 2) * u, p + ray(p, u, L / 2) * u))
     return out
 
 
@@ -165,33 +187,81 @@ def active(u, thr=0.3):  # extinct = max u below thr (Simula's particle mean blu
     return u.reshape(len(u), -1).max(1) > thr
 
 
+def scar_only(a, out, pred, scars, ic, st, e_ic, tally, W=2):
+    """Scar placements x (Simula, solver) over W windows at the same times, with each one's re-entry verdict."""
+    k = a.interp
+    f = upsample(chain(pred, ic, st, W, 15)[:, :, 0], k)  # Simula at its own frames + motion-compensated in between
+    y = solve("ap", ic, st, W, 14 * k + 1)[:, :, 0]  # the solver's true frames at every stored time
+    sim, sol = active(f[:, -1]), active(y[:, -1])
+    ent = []
+    for i, (cx, cy) in enumerate(scars):
+        save(f"{out}/s{i}/u.npy", f[i].astype(np.float16))
+        save(f"{out}/s{i}/u_solver.npy", y[i].astype(np.float16))
+        ent.append({"id": f"s{i}", "x": frac(cx), "y": frac(cy), "r": frac(a.scar_r), "frames": f"s{i}/u.npy",
+                    "solver": f"s{i}/u_solver.npy", "spiral": bool(sim[i]), "solver_spiral": bool(sol[i]),
+                    "u_relL2": round(relL2(f[i, 1:], y[i, 1:]), 4), "ablations": []})
+    ag = sim == sol
+    print(f"scar_only: solver re-entry {sol.sum()}/{len(scars)}, Simula {sim.sum()}, agree {ag.sum()}/{len(scars)}", flush=True)
+    idx = {"version": 1, "mock": False, "variant": "scar_only", "note": (
+        f"Simula ({a.models}/ap) vs the GPU pseudo-spectral solver. No ablations: low-conductivity lines (D 0.02, and "
+        f"0.005 / 0.001 below the training range) stopped none of 328 candidate lines in the solver (the tissue stays "
+        f"excitable). One sampler IC (a broken front, no stimuli), chosen among {a.n_ic} for the most agreement, then mixed "
+        f"outcomes. Over all {a.n_ic} ICs x {len(scars)} scars Simula's verdict agrees with the solver on "
+        f"{tally[:, 0].sum()}/{tally[:, 1].sum()}; on the {int(tally[:, 2].sum())} ICs where the scar placement decides "
+        f"(mixed solver outcomes) on {tally[tally[:, 2] > 0, 0].sum()}/{tally[tally[:, 2] > 0, 1].sum()}. Scar r {a.scar_r} D {a.scar_D} on a {a.n_scar}x{a.n_scar} grid; {W} chained Simula windows at its 15 "
+        f"frames, {k - 1} motion-compensated frames in between; solver = true frames at the same times. spiral = activity "
+        f"left at the end (max u > 0.3; else extinct). Simula agrees with the solver on {ag.sum()}/{len(ag)} scars; "
+        f"solver re-entry {sol.sum()}/{len(ag)}. u relL2 vs solver over the rollout {np.mean([e['u_relL2'] for e in ent]):.3f} "
+        f"(IC search: {e_ic:.3f} at Simula's own frames)."),
+        "grid": {"nx": 128, "ny": 128}, "geometry": "sheet", "range": [0, 1], "time_unit": "ms",
+        "dt": round(targets.SPECS["ap"]["frame_dt"] / k * AP_MS, 4),
+        "agreement": {"scars": len(ag), "agree": int(ag.sum()), "solver_spiral": int(sol.sum()), "simula_spiral": int(sim.sum())},
+        "scars": ent}
+    json.dump(idx, open(f"{out}/index.json", "w"), indent=1)
+    print(f"wrote {out}", flush=True)
+
+
 def heart(a):
     out, N = f"{a.out}/heart", 128
     pred = load(a.models, "ap")
-    scars = [(x, y) for y in (0.3, 0.7) for x in (0.2, 0.5, 0.8)]
-    R, Dm, W = a.scar_r, a.scar_D, 2  # windows for the scar rollout and for each ablation
-    # 1 one spiral-seeding IC from the sampler (a single broken front, no point stimuli) that re-enters for every scar:
-    #   solver active after 2 W windows for all scars, Simula active after W; then the best Simula-solver match
+    g = np.linspace(0.2, 0.8, a.n_scar)
+    scars = [(x, y) for y in g for x in g]
+    R, Dm, W, abl = a.scar_r, a.scar_D, 2, a.variant == "ablation"  # W: windows of the scar rollout (and of an ablation)
+    # 1 one spiral-seeding IC from the sampler (a single broken front, no point stimuli).  ablation: re-enters for every
+    #   scar (solver active after 2 W windows, Simula after W), then the best Simula-solver match.  scar_only: the scar
+    #   placement decides (solver re-entry for some scars, extinction for others), then the most Simula-solver agreement
     cand = targets.sample_params("ap", a.n_ic, np.random.default_rng(a.seed))
     for k in ("front1_on", "stim0_on", "stim1_on"):
         cand[:, targets.KNOBS["ap"].index(k)] = 0
-    rows = []
+    rows, tally = [], []
     for j, p in enumerate(cand):
         P = params("ap", len(scars), scar_x=[c[0] for c in scars], scar_y=[c[1] for c in scars], scar_radius=R, scar_D=Dm)
         ns = targets.KNOBS["ap"].index("scar_x")
         P[:, :ns] = p[:ns]  # fronts + stimuli from the candidate, scar from the grid
         ic, st = targets.make_ics("ap", P)
-        y = solve("ap", ic, st, 2 * W)
+        y = solve("ap", ic, st, 2 * W if abl else W)
         m = chain(pred, ic, st, W, 15)
-        ok = int((active(y[:, -1, 0]) & active(m[:, -1, 0])).sum())  # scars re-entering for both
-        rows.append((ok, np.mean([relL2(m[i, 1:, 0], y[i, 1 : W * 14 + 1, 0]) for i in range(len(P))]), P, ic, st))
-        print(f"IC {j}: re-entry {ok}/{len(P)}, Simula u relL2 over {W} windows {rows[-1][1]:.3f}", flush=True)
-    ok, e_ic, P, ic, st = min(rows, key=lambda r: (-r[0], r[1]))  # most re-entering scars, then best match
+        e = np.mean([relL2(m[i, 1:, 0], y[i, 1 : W * 14 + 1, 0]) for i in range(len(P))])
+        sol, sim = active(y[:, -1, 0]), active(m[:, -1, 0])
+        mix = int(min(sol.sum(), (~sol).sum()))  # scar placement decides re-entry (some re-enter, some die out)
+        ok = (int((sol & sim).sum()),) if abl else (int((sol == sim).sum()), int(mix > 0), mix)
+        rows.append((ok, e, P, ic, st))
+        tally.append((int((sol == sim).sum()), len(P), mix > 0))
+        print(f"IC {j}: solver re-entry {sol.sum()}/{len(P)}, Simula {sim.sum()}, agree {(sol == sim).sum()}, u relL2 {e:.3f}", flush=True)
+    ok, e_ic, P, ic, st = min(rows, key=lambda r: (tuple(-x for x in r[0]), r[1]))
+    if not abl:
+        return scar_only(a, out, pred, scars, ic, st, e_ic, np.array(tally))
     # 2 scar rollouts (Simula, q per window) -> the established arrhythmia; 3 candidate ablation lines from it
-    m = chain(pred, ic, st, W, a.q_ap)
-    start = m[:, -1]
-    cands = [lines_from(c, R) for c in scars]
-    abl_st = np.stack([np.minimum(st[i, 0], 1 - (1 - Dm) * seg_mask(p0, p1, a.line_half))[None]
+    m = chain(pred, ic, st, W, 15)
+    y = solve("ap", ic, st, 2 * W)
+    start = y[:, W * 14]  # the solver's established arrhythmia after the scar rollout's W windows (u, v)
+    ctrl_sim = active(chain(pred, start, st, W, 15)[:, -1, 0])  # no line: Simula from that state
+    ctrl_sol = active(y[:, -1, 0])  # no line: the solver keeps spiralling (IC choice)
+    print(f"controls (no line, still active after {W} windows): Simula {ctrl_sim.sum()}/{len(scars)}, solver "
+          f"{ctrl_sol.sum()}/{len(scars)}", flush=True)
+    lr = np.random.default_rng(a.seed + 1)
+    cands = [lines_from(c, R, lr, a.n_rand) for c in scars]
+    abl_st = np.stack([np.minimum(st[i, 0], 1 - (1 - a.line_D) * seg_mask(p0, p1, a.line_half))[None]
                        for i in range(len(scars)) for p0, p1 in cands[i]]).astype(np.float32)
     owner = np.array([i for i in range(len(scars)) for _ in cands[i]])
     ys = solve("ap", start[owner], abl_st, W)[:, -1, 0]  # verification: the solver from the same state, same D
@@ -208,8 +278,8 @@ def heart(a):
         pick += [j for j in ag if j not in pick][: 3 - len(pick)]
         pick += [j for j in k if j not in pick][: 3 - len(pick)]  # disagreeing lines only if too few agree
         pick = list(rng.permutation(pick))
-        fr = chain(pred, start[owner[pick]], abl_st[pick], W, a.q_ap)[:, :, 0]
-        save(f"{out}/s{i}/u.npy", m[i, :, 0].astype(np.float16))
+        fr = upsample(chain(pred, start[owner[pick]], abl_st[pick], W, 15)[:, :, 0], a.interp)
+        save(f"{out}/s{i}/u.npy", upsample(m[i : i + 1, :, 0], a.interp)[0].astype(np.float16))
         abl = []
         for n, (j, f) in enumerate(zip(pick, fr)):
             lid = "abc"[n]
@@ -219,13 +289,15 @@ def heart(a):
                         "frames": f"s{i}/{lid}.npy", "stops_arrhythmia": bool(sim_stop[j]), "solver_stops": bool(sol_stop[j])})
             shown.append(bool(agree[j]))
         entries.append({"id": f"s{i}", "x": frac(cx), "y": frac(cy), "r": frac(R), "frames": f"s{i}/u.npy", "ablations": abl})
-    dt = targets.SPECS["ap"]["frame_dt"] * 14 / (a.q_ap - 1)
-    idx = {"version": 1, "mock": False, "note": (
+    dt = targets.SPECS["ap"]["frame_dt"] / a.interp
+    idx = {"version": 1, "mock": False, "variant": "ablation", "note": (
         f"Simula ({a.models}/ap). IC: one sampler front (no stimuli), chosen among {a.n_ic} for re-entry with every scar "
         f"(scars re-entering: {ok}/{len(scars)}, solver after {2 * W} windows and Simula after {W}); Simula u relL2 vs solver over {W} windows {e_ic:.3f}. "
-        f"Scars r {R} D {Dm}; {W} chained windows of {a.q_ap} Simula times. Ablation lines: D = {Dm} within {a.line_half} "
-        f"of the segment, from the scar rollout's last (Simula) state, {W} windows. stops_arrhythmia = Simula's verdict "
-        f"(max u < 0.3 at the end); solver_stops = the solver from the same state and D. Simula and solver agree on "
+        f"Scars r {R} D {Dm}; {W} chained Simula windows at its 15 frames, {a.interp - 1} motion-compensated frames in "
+        f"between. Ablation lines: D = {a.line_D} within {a.line_half} of the segment, applied to the solver's state at the end "
+        f"of the scar rollout (the established arrhythmia), {W} Simula windows. stops_arrhythmia = Simula's verdict "
+        f"(max u < 0.3 at the end); solver_stops = the solver from the same state and D. Without a line the solver "
+        f"keeps spiralling for {ctrl_sol.sum()}/{len(scars)} scars, Simula for {ctrl_sim.sum()}/{len(scars)}. Simula and solver agree on "
         f"{agree.sum()}/{len(agree)} candidate lines ({agree.mean():.0%}); shown lines agree {sum(shown)}/{len(shown)}."),
         "grid": {"nx": N, "ny": N}, "geometry": "sheet", "dt": round(dt * AP_MS, 4), "time_unit": "ms", "range": [0, 1],
         "agreement": {"candidates": int(len(agree)), "agree": int(agree.sum()), "shown": len(shown), "shown_agree": int(sum(shown))},
@@ -259,16 +331,24 @@ def timing(a):
                    "solver_seconds": clock(lambda: solve("ap", ai, ast, 2, batch=1)),
                    "what": "one AP rollout, 2 windows (70 t.u. = 903 ms of tissue time), 29 frames"}}
     print(T, flush=True)
-    bs = a.solver_batch
-    simb = clock(lambda: [sw(si[i : i + 100], ss[i : i + 100], t14) for i in range(0, a.batch_n, 100)], reps=1)
-    sol_n = a.batch_n if a.solver_full else min(a.batch_n, 100)
-    solb = clock(lambda: solve("swe", si[:sol_n], ss[:sol_n], batch=bs), reps=1) * a.batch_n / sol_n
-    T["batch"] = {"simula_seconds": simb, "solver_seconds": solb, "scenarios": a.batch_n,
-                  "solver_measured_scenarios": sol_n, "solver_batch": bs,
-                  "what": f"{a.batch_n} random sampler quakes, 15 frames each; Simula in chunks of 100 ICs"
-                          + ("" if sol_n == a.batch_n else f"; solver measured on {sol_n} and scaled x{a.batch_n // sol_n}")}
+    def best(f, opts):  # each option timed on all batch_n quakes; one that does not fit in memory is skipped
+        r = []
+        for o in opts:
+            try:
+                r.append((clock(lambda: f(o), reps=1), o))
+            except Exception as e:  # noqa: BLE001  (XLA out of memory)
+                print(f"batch {o}: {type(e).__name__}", flush=True)
+        print(r, flush=True)
+        return min(r)
+
+    simb, c = best(lambda c: sw(si, ss, t14, c), a.chunks)
+    solb, bs = best(lambda b: solve("swe", si, ss, batch=b), a.solver_batches)
+    T["batch"] = {"simula_seconds": simb, "solver_seconds": solb, "scenarios": a.batch_n, "simula_batch": c,
+                  "solver_batch": bs, "what": f"{a.batch_n} random sampler quakes, 15 frames each, all run on both "
+                  "sides; each at its fastest batch size (ICs per device call)"}
     T["hardware"] = f"{jax.devices()[0].device_kind}; solver = our GPU pseudo-spectral solver (pde.rollout, JAX)"
-    T["simula"] = f"{a.models}: particle-mean prediction (8 particles), single precision; wall clock after warm-up"
+    T["simula"] = (f"{a.models}: {len(np.load(f'{a.models}/swe/z.npy'))} particle(s), single precision; wall clock after "
+                   "warm-up, incl. host-side IC normalization and the copy of every frame back to the host")
     json.dump(T, open(f"{a.out}/timing.json", "w"), indent=1)
     print(json.dumps(T), flush=True)
 
@@ -276,8 +356,8 @@ def timing(a):
 def check():
     m = seg_mask((0.2, 0.5), (0.6, 0.5), 0.02)
     assert m[64, 50] > 0.99 and m[64, 100] < 0.01 and m[40, 50] < 0.01  # on the line, past its end, off to the side
-    L = lines_from((0.5, 0.3), 0.12)
-    assert len(L) == 16 and all(0.03 - 1e-9 <= v <= 0.97 + 1e-9 for p in L for q in p for v in q)
+    L = lines_from((0.5, 0.3), 0.12, np.random.default_rng(0), 20)
+    assert len(L) == 36 and all(0.03 - 1e-9 <= v <= 0.97 + 1e-9 for p in L for q in p for v in q)
     P = params("swe", 3, src0_x=[0.1, 0.2, 0.3], src0_on=1)
     assert P[:, targets.KNOBS["swe"].index("src0_x")].tolist() == [np.float32(0.1), np.float32(0.2), np.float32(0.3)]
     assert frac(127 / 128) == 1.0
@@ -292,16 +372,20 @@ if __name__ == "__main__":
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--nx", type=int, default=4, help="tsunami: epicentres across the source region (x)")
     ap.add_argument("--ny", type=int, default=7, help="tsunami: epicentres along the coast (y)")
-    ap.add_argument("--q_swe", type=int, default=57, help="tsunami: frames per 140 s window (57: every 2.5 s)")
+    ap.add_argument("--q_swe", type=int, default=15, help="tsunami: Simula frames per 140 s window (15: its own)")
+    ap.add_argument("--interp", type=int, default=4, help="stored frames per Simula frame (motion-compensated)")
     ap.add_argument("--risk", type=int, default=1000)
     ap.add_argument("--risk_k", type=int, default=10)
-    ap.add_argument("--q_ap", type=int, default=57, help="heart: frames per window")
-    ap.add_argument("--n_ic", type=int, default=12, help="heart: candidate ICs searched for re-entry")
+    ap.add_argument("--n_ic", type=int, default=16, help="heart: candidate ICs searched")
+    ap.add_argument("--variant", default="scar_only", choices=["scar_only", "ablation"])
+    ap.add_argument("--n_scar", type=int, default=3, help="heart: scar grid per axis")
     ap.add_argument("--scar_r", type=float, default=0.12)
     ap.add_argument("--scar_D", type=float, default=0.03)
-    ap.add_argument("--line_half", type=float, default=0.02)
+    ap.add_argument("--line_half", type=float, default=0.025)
+    ap.add_argument("--line_D", type=float, default=0.02)
+    ap.add_argument("--n_rand", type=int, default=40, help="heart: random candidate lines per scar")
     ap.add_argument("--batch_n", type=int, default=1000)
-    ap.add_argument("--solver_batch", type=int, default=100)
-    ap.add_argument("--solver_full", action=argparse.BooleanOptionalAction, default=True)
+    ap.add_argument("--chunks", type=int, nargs="+", default=[4, 8, 16, 32, 64], help="timing: Simula ICs per call")
+    ap.add_argument("--solver_batches", type=int, nargs="+", default=[100, 250, 500, 1000])
     a = ap.parse_args()
     check() if a.cmd == "check" else {"tsunami": tsunami, "heart": heart, "timing": timing}[a.cmd](a)

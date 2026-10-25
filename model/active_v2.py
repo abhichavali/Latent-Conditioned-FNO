@@ -8,7 +8,9 @@ budget and history.jsonl schema (+ an "acq" entry), written next to it as <resul
   python active_v2.py check                                                   # self-check of the scoring math (CPU)
 
 Ensemble linear-Gaussian model.  E members (particles z on the pretrained weights, or (bootstrap adapter, particle)
-pairs) predict p_e(x) at the scoring frames in physical units, field f divided by scale_f (as in active.score).  Write
+pairs) predict p_e(x) at the scoring frames in physical units, field f of IC x divided by its own predicted magnitude
+(rms of the ensemble mean; --norm abs: a pool-wide scale_f as in active.score), so a candidate's information and the
+reference variance are relative, like the relL2 fit loss and the raw_* test metric.  Write
 f(x) = mean(x) + B(x) w, B = deviations / sqrt(E), w ~ N(0, I_E), so Cov(f(x), f(x')) is the ensemble covariance.
 Observing x adds precision G_x / s2 on w, where G_x = B(x)^T B(x) averaged over the output dims (fields, frames, space;
 E x E, so no projection is needed), tr G_x = the per-dim particle variance (active.score / dims), and
@@ -128,6 +130,15 @@ def sobol_pool(p, B, seed):
     return {"feat": targets.features(p.base, P), "ics": ics * p.fu[:nf], "st": st * p.su[:ns], "id": P}
 
 
+def get_prior(a, enc, Z, p):
+    """Graph prior p_phi(z | G) with sigma -> tau sigma (temperature calibration, eval.py's tau), or for generic_v2 the
+    generic prior N(mean, cov of the training latents) as active.py "generic" (not tempered)."""
+    if a.method == "generic_v2":
+        return ev.generic_prior(Z)
+    g = ev.graph_prior(enc, p.graph)
+    return {"mu": g["mu"], "L": (a.tau * g["L"]).astype(np.float32)}
+
+
 def updater(a, fno, prior, out):
     """The reported fine-tuning branch of active.run: stage B (active.make_ft, a.ft_full) or C (active.make_stage_c).
     -> (state, update(state, data, z, rng) -> (state, ft record), model(state) -> (fno, z for testing))."""
@@ -166,7 +177,7 @@ def run(a):
     log = lambda *x: print(f"[{time.strftime('%H:%M:%S')}]", *x, flush=True)
     p = al.problem(a.target, cfg, S, np.random.default_rng(a.seed + 100))
     assert isinstance(p, al.Target), "active_v2 samples knobs: swe / ap / swe_m only"
-    prior = ev.generic_prior(Z) if a.method == "generic_v2" else ev.graph_prior(enc, p.graph)
+    prior = get_prior(a, enc, Z, p)
     fno = ev.adapt_statics(fno, p.test.items[0][0].ns)
     fit = ev.make_fitter(fno, lr=a.lr)
     ftw, ft_update, ft_model = updater(a, fno, prior, out) if a.ft_steps else (None, None, None)
@@ -213,10 +224,13 @@ def run(a):
             inp = ev.prep(pool["ics"], pool["st"], p.T, p.L)
             Gp, msp = grams(members, inp, tq)
             del inp
-            Gr, _ = grams(members, inp_R, tq)
-            scale = msp.mean(0)
-            scale = np.where(scale > 0, scale, 1.0)[:, None, None]
-            Gc, MR = (Gp / scale).sum(1), (Gr / scale).sum(1).mean(0)
+            Gr, msr = grams(members, inp_R, tq)
+            if a.norm == "abs":  # active.score's scale: per field over the pool
+                sp = sr = np.broadcast_to(msp.mean(0), msp.shape[1:])
+            else:  # relative to each IC's own predicted magnitude, like the relL2 loss and the raw_* test metric
+                sp, sr = np.maximum(msp, 1e-3 * msp.mean(0)), np.maximum(msr, 1e-3 * msp.mean(0))
+            sp, sr = (np.where(x > 0, x, 1.0)[..., None, None] for x in (sp, sr))
+            Gc, MR = (Gp / sp).sum(1), (Gr / sr).sum(1).mean(0)
             pick, at, sc, s2 = acquire(Gc, MR, min(a.batch, len(Gc)), crit, batch, pool["feat"], rng, a.noise_frac)
             var = np.trace(Gc, axis1=1, axis2=2)
             info = {"members": int(Gc.shape[1]), "ensemble": "adapters" if J and r > 1 else "z", "noise_s2": s2,
@@ -292,7 +306,7 @@ def export(a):
     out = a.out or f"/workspace/results/{rname}/active/{a.target}_{a.method}"
     dest = a.dest or f"/workspace/results/{rname}/final_models/{a.target}"
     p = al.Target(a.target)
-    prior = ev.generic_prior(Z) if a.method == "generic_v2" else ev.graph_prior(enc, p.graph)
+    prior = get_prior(a, enc, Z, p)
     st = np.load(f"{out}/state.npz", allow_pickle=True)
     ftw, _, ft_model = updater(a, ev.adapt_statics(fno, p.test.items[0][0].ns), prior, out)
     model, zt = ft_model(ftw)
@@ -327,9 +341,9 @@ def load_adapted(d):
     fno = eqx.tree_deserialise_leaves(f"{d}/fno.eqx", CondFNO(jax.random.PRNGKey(0), **m["model"]))
     z, nf = np.load(f"{d}/z.npy"), len(m["fields"])
 
-    def predict(ics, statics, times):
+    def predict(ics, statics, times, c=None):  # c: ICs per device call (eval.predict's default: ~64 forwards)
         inp = ev.prep(np.asarray(ics, np.float32), None if statics is None else np.asarray(statics, np.float32), m["T"], m["L"])
-        return np.concatenate([mean[:, :, :nf] for _, mean, _ in ev.predict(fno, inp, z, np.asarray(times, np.float32))])
+        return np.concatenate([mean[:, :, :nf] for _, mean, _ in ev.predict(fno, inp, z, np.asarray(times, np.float32), c)])
 
     predict.meta = m
     return predict
@@ -435,6 +449,9 @@ def main():
     ap.add_argument("--K_score", type=int, default=8, help="ensemble members for scoring (adapters: K_score / J each)")
     ap.add_argument("--pool", type=int, default=2000)
     ap.add_argument("--ref", type=int, default=500, help="reference set R (fresh ICs) for EPIG")
+    ap.add_argument("--norm", default="rel", choices=["rel", "abs"],
+                    help="ensemble deviations relative to each IC's predicted magnitude (rel) or a pool-wide field scale (abs: "
+                         "picks sat at the 99.9th variance percentile on AP)")
     ap.add_argument("--noise_frac", type=float, default=1.0, help="s2 = noise_frac * median candidate variance (0.1 saturated: pick 1 took 86% of the reference variance)")
     ap.add_argument("--J", type=int, default=4, help="active_v2: bootstrap adapters")
     ap.add_argument("--boot_steps0", type=int, default=300, help="Adam steps per adapter the first time")
@@ -455,6 +472,7 @@ def main():
     ap.add_argument("--c_lr", type=float, default=2e-4)
     ap.add_argument("--c_pull", type=float, default=1e-3)
     ap.add_argument("--c_steps", type=int, default=2000)
+    ap.add_argument("--tau", type=float, default=1.0, help="graph prior temperature: sigma -> tau sigma")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--results", help="summary: results dir of one checkpoint")
     ap.add_argument("--targets", nargs="*", default=["swe", "ap"])
