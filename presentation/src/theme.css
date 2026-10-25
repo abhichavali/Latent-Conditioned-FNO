@@ -474,3 +474,55 @@ html:has(.print), html:has(.print) body, html:has(.print) #root { height: auto; 
 .setup-eqs .kicker { color: var(--muted); margin-bottom: 6px; }
 .setup-eqs .katex { font-size: 34px; color: var(--ink); }
 .setup-eqs small { font: 400 19px / 1.4 var(--mono); color: var(--muted); }
+
+/* "Every equation becomes a graph": the equation and its graph on the left, one example and the dataset wall on the right */
+.graph-body { display: grid; grid-template-columns: 760px 1fr; gap: 56px; margin-top: 28px; }
+.graph-eq .katex { font-size: 40px; }
+.graph-diagram { width: 760px; height: 583px; margin-top: 8px; }
+.graph-diagram .diagram { transform: scale(0.845); transform-origin: top left; }
+.graph-right { display: grid; align-content: start; gap: 22px; }
+.example { padding: 22px 26px; display: grid; gap: 14px; background: var(--glass-solid); }
+.example .kicker { color: var(--latent); }
+.example small { font: 400 17px / 1.35 var(--mono); color: var(--muted); }
+.example-row { display: flex; align-items: center; gap: 18px; }
+.example-row .plus { font: 300 44px var(--serif); color: var(--muted); }
+.frames { display: flex; gap: 6px; }
+.frames i { width: 72px; height: 72px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08); }
+.mini-graph line { stroke: rgba(233, 238, 245, 0.35); stroke-width: 1.2; }
+.mini-graph .c { fill: #e9eef5; } .mini-graph .f { fill: var(--ember); } .mini-graph .o { fill: var(--latent); } .mini-graph .r { fill: var(--sea); }
+.wall { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
+.wall .mini { display: grid; justify-items: center; gap: 4px; padding: 6px 4px; border-radius: 10px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); }
+.wall .mini .frames i { width: 20px; height: 20px; border-radius: 4px; }
+.wall-count { margin: 4px 0 0; font: 300 30px var(--sans); color: var(--ink-2); }
+.wall-count b { color: var(--ink); font-weight: 500; }
+.gpus { display: grid; gap: 10px; margin-top: 6px; }
+.gpus .kicker { color: var(--muted); }
+.gpu-row { display: flex; gap: 22px; }
+.gpu { display: grid; justify-items: center; gap: 6px; font: 400 16px var(--mono); color: var(--ink-2); }
+.gpu-icon { width: 96px; height: 45px; fill: none; stroke: #9fdcff; stroke-width: 2.2; filter: drop-shadow(0 0 6px rgba(127, 212, 255, 0.35)); }
+
+/* "How Simula predicts a new equation": equation -> encoder -> latent -> operator -> forecast */
+.m-row { display: flex; align-items: center; gap: 10px; margin-top: 120px; }
+.m-card { padding: 20px 22px; display: grid; gap: 6px; width: 440px; flex: none; background: var(--glass-solid); }
+.m-card .katex { font-size: 17px; }
+.m-card small, .m-out small, .m-sims small { font: 400 15px / 1.3 var(--mono); color: var(--muted); }
+.m-arrow { width: 54px; flex: none; fill: none; stroke: var(--ink-2); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.m-box { flex: none; width: 170px; padding: 22px 16px; border-radius: 18px; text-align: center; display: grid; gap: 8px;
+  background: color-mix(in oklab, var(--latent) 18%, #0b0f18); border: 1px solid color-mix(in oklab, var(--latent) 55%, transparent);
+  box-shadow: 0 0 40px color-mix(in oklab, var(--latent) 25%, transparent); }
+.m-box.sea { background: color-mix(in oklab, var(--sea) 16%, #0b0f18); border-color: color-mix(in oklab, var(--sea) 55%, transparent);
+  box-shadow: 0 0 40px color-mix(in oklab, var(--sea) 25%, transparent); }
+.m-box b { font: 500 22px var(--sans); color: var(--ink); } .m-box span { font: 400 15px / 1.3 var(--sans); color: var(--ink-2); }
+.m-latent { flex: none; width: 250px; display: grid; gap: 8px; }
+.m-latent .kicker { color: var(--latent); }
+.zbars { width: 224px; height: 120px; }
+.zbar { fill: var(--latent); transform-box: fill-box; transform-origin: 50% 100%; opacity: 0.9; }
+.m-state { position: relative; height: 40px; font: 400 15px / 1.3 var(--mono); color: var(--ink-2); }
+.m-state > span { position: absolute; inset: 0; }
+.m-state .s1 { color: var(--muted); }
+.m-out { flex: none; display: grid; gap: 8px; }
+.m-frames { display: flex; gap: 6px; }
+.m-frame { width: 52px; height: 52px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); }
+.m-sims { width: 520px; margin: 34px 0 0 520px; padding: 18px 22px; display: grid; gap: 10px; background: var(--glass-solid); }
+.m-simrow { display: flex; gap: 8px; }
+.m-simrow i { width: 64px; height: 64px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); }
