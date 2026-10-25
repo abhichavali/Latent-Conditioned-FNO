@@ -609,6 +609,9 @@ def pattern_field(key, n=N):
     return _unit(_lowpass(p, n)), fam
 
 
+IC_SCALE = (1.3, 0.2)  # per-IC amplitude multiplier U(0, 1) * a + b; dataset A (pre-v2) used (0.9, 0.3)
+
+
 def _one_ic(key, rows, n):
     C = rows.shape[0]
     k = jax.random.split(key, 6)
@@ -622,7 +625,7 @@ def _one_ic(key, rows, n):
     pats = jnp.where(wake[:, None, None], jnp.roll(pats[0], (sh[0], sh[1]), (0, 1))[None], pats)
     pats = jax.vmap(_unit)(pats)
     mean, amp, mode = rows[:, 0], rows[:, 1], rows[:, 2]
-    scale = U01(k[3], (C,)) * 1.3 + 0.2
+    scale = U01(k[3], (C,)) * IC_SCALE[0] + IC_SCALE[1]
     rest = jax.random.bernoulli(k[4], 0.25, (C,)) & (jnp.arange(C) > 0)
     kp = jax.random.split(k[5], 3)
     th, kap = U01(kp[0], (C,)) * 2.5 - 1.0, U01(kp[1], (C,)) * 6 + 2

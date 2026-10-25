@@ -265,6 +265,8 @@ def supplement(args):
     ids = [i for i in range(args.id_offset, args.id_offset + args.n) if os.path.exists(f"{args.supplement}/eq_{i:04d}")]
     todo = ids if args.check else [i for i in ids if not os.path.exists(f"{args.out}/eq_{i:04d}")]
     specs = [json.load(open(f"{args.supplement}/eq_{i:04d}/spec.json")) for i in todo]
+    for s in specs:  # dataset A (pre-v2) has no field permutation
+        s.setdefault("perm", list(range(len(s["fields"]))))
     k0 = {len(s["samples"]) for s in specs}
     assert len(k0) <= 1, k0
     k0 = k0.pop() if k0 else 0
@@ -345,8 +347,10 @@ def main():
     ap.add_argument("--supplement", help="existing dataset dir: add --extra windows per equation, see top")
     ap.add_argument("--extra", type=int, default=12)
     ap.add_argument("--check", type=int, default=0, help="with --supplement: verify reproduction on this many eqs per nf")
+    ap.add_argument("--ic-scale", type=float, nargs=2, default=sample.IC_SCALE, help="IC amplitude multiplier U*a+b; A: 0.9 0.3")
     args = ap.parse_args()
     globals()["KEEP"] = args.keep
+    sample.IC_SCALE = tuple(args.ic_scale)
     os.makedirs(args.out, exist_ok=True)
     if args.supplement:
         return supplement(args)
