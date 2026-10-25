@@ -5,9 +5,11 @@ export default {
   title: 'Heart demo',
   section: 'Applications',
   tone: 'ember',
-  steps: 0,
-  Component: demo([2]),
-  notes: `Frame it in thousands: a forecaster doesn't run one scenario, they run thousands.
+  steps: 1,
+  Component: demo([3, 4]),
+  notes: `SIDE BY SIDE: click "▶ Run both". "The same heart, simulated two ways. Simula finishes about 12 times faster."
+
+Frame it in thousands: a forecaster doesn't run one scenario, they run thousands.
 
 HEART
 - Click the tissue to place a scar: "Place a scar, and a spiral (the arrhythmia) forms around it."

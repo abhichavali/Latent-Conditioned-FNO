@@ -1,9 +1,10 @@
 // Slide 5, heart and wildfire tabs (same bank schema): click to place a scar / start a fire, then try ablation lines / firebreaks.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { loadBank, loadFrames, nearest, ratio, timing, useAsync, type HeartBank, type Scar } from './bank'
 import { Clip, HeartEngine, mount, surface } from './engines'
-import { BankStatus, MockBadge, SLOW, SolverCard } from './hud'
+import { BankStatus, MockBadge, SolverCard, slow } from './hud'
+import { RaceView, type Setup } from './Hook'
 
 type Kind = 'heart' | 'fire'
 const TEXT = {
@@ -62,6 +63,38 @@ function label(text: string) {
   return s
 }
 
+/** Grid, value range and (for fire) the forest palette, shared by the demo view and the side-by-side race. */
+function prepSheet(engine: HeartEngine, bank: HeartBank, kind: Kind) {
+  const { nx, ny } = bank.grid
+  engine.params.autorotate = false
+  engine.setGrid(nx, ny, { geometry: bank.geometry ?? 'sheet', lx: bank.grid.lx ?? nx, ly: bank.grid.ly ?? ny })
+  engine.range = bank.range ?? [0, 1]
+  if (kind === 'fire') { // forest floor instead of tissue; the LUT path ('clinical') carries the fire palette
+    const e = engine as unknown as { luts: Record<string, THREE.Texture>; material: THREE.MeshPhysicalMaterial; params: Record<string, unknown>; applyParams(): void }
+    e.luts.clinical = fireLut()
+    Object.assign(e.params, { cmap: 'clinical', contract: 0, glow: 1 })
+    e.material.color.set('#3c4a2c'); e.material.clearcoat = 0.1; e.material.sheen = 0
+    e.applyParams()
+  }
+}
+
+/** Side by side: the solver's frames at its measured speed vs Simula's forecast for the bank's first scenario. */
+export function SheetRace({ kind }: { kind: Kind }) {
+  const bank = useAsync(() => loadBank(kind), [kind])
+  const setup = useMemo<Setup | null>(() => {
+    const b = bank.value
+    if (!b) return null
+    const sc = b.scars[0]
+    return (left, right) => Promise.all([loadFrames(kind, sc.frames, b.grid), sc.solver ? loadFrames(kind, sc.solver, b.grid) : null]).then(([sim, solved]) => {
+      const [L, dl] = mount(HeartEngine, left), [R, dr] = mount(HeartEngine, right)
+      for (const e of [L, R]) { prepSheet(e, b, kind); e.camera.position.set(0, 0.5, 6.2); e.controls.target.set(0, 0, 0) }
+      return { L, R, sim, solver: solved ?? sim, dispose: () => { dl(); dr() } }
+    })
+  }, [bank.value, kind])
+  if (!bank.value || !setup) return <BankStatus kind={kind} error={bank.error} />
+  return <RaceView t={timing(kind)} setup={setup} mock={bank.value.mock} fps={kind === 'heart' ? 12 : 10} />
+}
+
 type Ctl = { click(e: { clientX: number; clientY: number }): void; ablate(id: string): void }
 
 function HeartLive({ bank, kind }: { bank: HeartBank; kind: Kind }) {
@@ -77,16 +110,7 @@ function HeartLive({ bank, kind }: { bank: HeartBank; kind: Kind }) {
   useEffect(() => {
     const { nx, ny } = bank.grid, range = bank.range ?? [0, 1]
     const [engine, dispose] = mount(HeartEngine, box.current!)
-    engine.params.autorotate = false
-    engine.setGrid(nx, ny, { geometry: bank.geometry ?? 'sheet', lx: bank.grid.lx ?? nx, ly: bank.grid.ly ?? ny })
-    engine.range = range
-    if (kind === 'fire') { // forest floor instead of tissue; the LUT path ('clinical') carries the fire palette
-      const e = engine as unknown as { luts: Record<string, THREE.Texture>; material: THREE.MeshPhysicalMaterial; params: Record<string, unknown>; applyParams(): void }
-      e.luts.clinical = fireLut()
-      Object.assign(e.params, { cmap: 'clinical', contract: 0, glow: 1 })
-      e.material.color.set('#3c4a2c'); e.material.clearcoat = 0.1; e.material.sheen = 0
-      e.applyParams()
-    }
+    prepSheet(engine, bank, kind)
     engine.camera.position.set(0.7, 0.5, 6.8) // closer than the engine default, shifted so the side panel doesn't cover the tissue
     engine.controls.target.set(0.7, 0, 0)
     for (const s of bank.scars) for (const f of [s.frames, ...s.ablations.map(a => a.frames)]) loadFrames(kind, f, bank.grid).catch(() => {}) // prefetch
@@ -128,7 +152,7 @@ function HeartLive({ bank, kind }: { bank: HeartBank; kind: Kind }) {
       loadFrames(kind, file, bank.grid).then(fr => {
         if (me !== token) return
         clip.loop = loop
-        clip.play(fr, t.simula * SLOW)
+        clip.play(fr, t.simula * slow(t))
         then?.()
         setRun(r => r + 1)
       }, e => setError(e.message))

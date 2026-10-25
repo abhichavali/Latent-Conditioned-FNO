@@ -4,15 +4,18 @@ import { Missing, ratio, type timing } from './bank'
 
 type T = ReturnType<typeof timing>
 
-/** The race, to scale but without seconds: the solver's bar fills over SLOW x its measured time, Simula finishes at SLOW x its own. run = restart key, 0 = idle. */
-export const SLOW = 20
+/** Races are drawn to scale but stretched: the solver's side always takes RACE seconds on screen, Simula's its measured share of that. */
+export const RACE = 8
+export const slow = (t: { solver: number }) => RACE / t.solver
+
+/** The race card. run = restart key, 0 = idle. */
 export function SolverCard({ t, run, who = 'Simula', className = '' }: { t: T; run: number; who?: string; className?: string }) {
   const clock = useRef<HTMLSpanElement>(null), bar = useRef<HTMLElement>(null), state = useRef<HTMLSpanElement>(null), sim = useRef<HTMLSpanElement>(null)
   useEffect(() => {
     let id = 0
     const t0 = performance.now()
     const tick = () => {
-      const s = run ? (performance.now() - t0) / 1000 / SLOW : 0, p = Math.min(s / t.solver, 1)
+      const s = run ? (performance.now() - t0) / 1000 / slow(t) : 0, p = Math.min(s / t.solver, 1)
       if (!clock.current || !bar.current || !state.current || !sim.current) return // unmounting
       clock.current.textContent = !run ? '' : p < 1 ? `${Math.floor(p * 100)}%` : 'done'
       bar.current.style.transform = `scaleX(${p})`

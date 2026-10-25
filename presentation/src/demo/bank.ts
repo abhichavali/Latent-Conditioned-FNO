@@ -48,7 +48,7 @@ export type TsunamiBank = {
   risk?: { frames: string; count: number; unit?: string }
 }
 export type Ablation = { id: string; label?: string; line: [XY, XY]; frames: string; stops_arrhythmia: boolean } // fire: a firebreak, true = town safe
-export type Scar = { id: string; x: number; y: number; r: number; frames: string; ablations: Ablation[] }
+export type Scar = { id: string; x: number; y: number; r: number; frames: string; solver?: string; ablations: Ablation[] }
 export type HeartBank = {
   version: 1; mock?: boolean; note?: string
   grid: { nx: number; ny: number; lx?: number; ly?: number }

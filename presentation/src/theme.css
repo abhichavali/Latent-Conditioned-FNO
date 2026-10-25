@@ -526,3 +526,5 @@ html:has(.print), html:has(.print) body, html:has(.print) #root { height: auto; 
 .m-sims { width: 520px; margin: 34px 0 0 520px; padding: 18px 22px; display: grid; gap: 10px; background: var(--glass-solid); }
 .m-simrow { display: flex; gap: 8px; }
 .m-simrow i { width: 64px; height: 64px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); }
+.race-tab { padding: 22px 24px 8px; display: flex; flex-direction: column; }
+.race-tab .hook { flex: 1; height: auto; }

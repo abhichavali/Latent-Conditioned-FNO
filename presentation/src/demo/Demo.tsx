@@ -1,15 +1,16 @@
 // Slide 5: the live demo. Tabs follow the slide's build steps (→ / ←) and can also be clicked.
-import { useEffect, useRef, useState, type PointerEvent as PE } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as PE, type ReactNode } from 'react'
 import * as THREE from 'three'
 import gsap from 'gsap'
 import { useMode, useStep } from '../deck/SlideFrame'
 import { reduced } from '../deck/motion'
 import { fmtDuration, loadBank, loadFrames, nearest, ratio, results, timing, useAsync, type TsunamiBank } from './bank'
 import { Clip, etaMax, riskLayer, tsunami } from './engines'
-import { BankStatus, MockBadge, Poster, SLOW, SolverCard } from './hud'
-import { FireDemo, HeartDemo } from './HeartDemo'
+import { BankStatus, MockBadge, Poster, SolverCard, slow } from './hud'
+import { FireDemo, HeartDemo, SheetRace } from './HeartDemo'
+import { Hook } from './Hook'
 
-const ALL_TABS = ['Tsunami', 'Flood-risk map', 'Heart', 'Wildfire']
+const ALL_TABS = ['Side by side', 'Tsunami', 'Flood-risk map', 'Side by side', 'Heart', 'Side by side', 'Wildfire']
 const noFocus = (e: { preventDefault(): void }) => e.preventDefault() // keep focus off buttons so Space still drives the deck
 
 /** One application's demo slide: `only` = its tabs (indices into ALL_TABS), one per build step. */
@@ -32,7 +33,7 @@ function Demo({ only }: { only: number[] }) {
         {live && <button className="btn ghost" onMouseDown={noFocus} onClick={() => setBackup(true)}>Backup: play video</button>}
       </div>
       <div className="demo-view glass">
-        {!live ? <Poster label={ALL_TABS[tab]} tone={tab >= 2 ? 'ember' : 'sea'} /> : tab < 2 ? <TsunamiDemo risk={tab === 1} /> : tab === 2 ? <HeartDemo /> : <FireDemo />}
+        {!live ? <Poster label={ALL_TABS[tab]} tone={tab >= 3 ? 'ember' : 'sea'} /> : VIEWS[tab]()}
       </div>
       {backup && <Backup close={() => setBackup(false)} />}
     </div>
@@ -60,6 +61,12 @@ function Backup({ close }: { close: () => void }) {
     </div>
   )
 }
+
+const race = (el: ReactNode) => <div className="demo-stage race-tab">{el}</div>
+const VIEWS = [
+  () => race(<Hook />), () => <TsunamiDemo risk={false} />, () => <TsunamiDemo risk />,
+  () => race(<SheetRace kind="heart" />), () => <HeartDemo />, () => race(<SheetRace kind="fire" />), () => <FireDemo />,
+]
 
 // ---------- tsunami: drag the epicentre, and the flood-risk map ----------
 function TsunamiDemo({ risk }: { risk: boolean }) {
@@ -120,7 +127,7 @@ function TsunamiLive({ bank, risk }: { bank: TsunamiBank; risk: boolean }) {
         loadFrames('tsunami', s.frames, bank.grid).then(fr => {
           if (dead || current !== id || mode !== 'quake') return
           engine.etaMax = etaMax(bed, fr)
-          clip.play(fr, t.simula * SLOW) // the forecast appears after Simula's measured time, on the race card's scale
+          clip.play(fr, t.simula * slow(t)) // the forecast appears after Simula's measured time, on the race card's scale
           setSel(id); setRun(r => r + 1)
         }, e => !dead && setError(e.message))
       }

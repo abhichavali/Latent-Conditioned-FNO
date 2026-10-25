@@ -5,9 +5,11 @@ export default {
   title: 'Tsunami demo',
   section: 'Applications',
   tone: 'sea',
-  steps: 1,
-  Component: demo([0, 1]),
-  notes: `Frame it in thousands: a forecaster doesn't run one scenario, they run thousands.
+  steps: 2,
+  Component: demo([0, 1, 2]),
+  notes: `SIDE BY SIDE: click "▶ Run both". "Same quake, same physics. The simulator is still computing; Simula is already done, 12 times faster."
+
+Frame it in thousands: a forecaster doesn't run one scenario, they run thousands.
 
 TSUNAMI (drag in the map)
 - Drag the epicentre. Simula's forecast lands while the solver card is still computing.
