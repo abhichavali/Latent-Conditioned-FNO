@@ -64,6 +64,11 @@ def write(res, out):
                   f"Demo playback inserts frames between FNO steps by motion-compensated interpolation; on solver truth it "
                   f"reconstructs the skipped frames with rel L2 {ic['flow']:.3g} vs {ic['linear']:.3g} for linear crossfade."]
         L += [""]
+    L += ["## Notes", "",
+          "- N = 512 and 1024 both hit the 6000-step cap (~5 and ~2.5 epochs), so the flattening at the top end is at "
+          "least partly a compute limit, not only a data limit.",
+          "- Long-horizon errors fall once the truth itself decays (the tsunami is absorbed by the sponge coast), so "
+          "steps 38/57 for SWE mostly measure the quiet basin after impact.", ""]
     L += ["## Viewing rollouts", "",
           "`results/viz/{swe,ap}_{truth,fno}/` are in the viz page formats (solver truth vs FNO, same held-out IC; "
           "SWE land is a damping sponge in the solver, drawn as beach and hills):", "",

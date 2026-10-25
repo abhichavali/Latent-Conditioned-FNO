@@ -145,7 +145,8 @@ def viz(name, model, test, mu, sd, static_n, static_raw, data_dir, out, steps=57
     import interp
 
     spec, k = EQS[name], FINE[name]
-    i = int(np.argmax(test[:, 0, 0].max((-2, -1)))) if name == "swe" else 0  # SWE: the strongest source
+    # SWE: the strongest source; AP: the most excited tissue at the end of the test window (sustained re-entry)
+    i = int(np.argmax(test[:, 0, 0].max((-2, -1)) if name == "swe" else (test[:, -1, 0] > 0.5).mean((-2, -1))))
     x0 = test[i, 0]
     u0 = np.concatenate([x0, static_raw]) if name == "swe" else x0
     sub = spec["substeps"] // k
@@ -176,11 +177,12 @@ def main():
     ap.add_argument("--out", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "results"))
     ap.add_argument("--sizes", type=int, nargs="+", default=list(SIZES))
     ap.add_argument("--max-steps", type=int, default=6000)
+    ap.add_argument("--eqs", nargs="+", default=list(EQS))
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     res_f = f"{a.out}/results.json"
     res = json.load(open(res_f)) if os.path.exists(res_f) else {}
-    for name in EQS:
+    for name in a.eqs:
         train_all = np.load(f"{a.data}/{name}_train.npy")
         test = np.load(f"{a.data}/{name}_test.npy")
         static_raw = np.load(f"{a.data}/swe_static.npy") if name == "swe" else None  # (2, N, N)
