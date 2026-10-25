@@ -8,7 +8,9 @@ import { advance, clamp, format, parse, progress, type Pos } from './nav'
 import { reduced } from './motion'
 
 const channel = new BroadcastChannel('pde-deck') // keeps the audience and presenter windows in step
-const isPresenter = new URLSearchParams(location.search).has('presenter')
+const params = new URLSearchParams(location.search)
+const isPresenter = params.has('presenter')
+const isPrint = params.has('print') // every slide at its last build, one per page: print to PDF
 const pad = (n: number) => String(n).padStart(2, '0')
 
 export function Deck({ slides }: { slides: SlideDef[] }) {
@@ -62,6 +64,11 @@ export function Deck({ slides }: { slides: SlideDef[] }) {
     return () => removeEventListener('keydown', onKey)
   }, [move, go, overview, slides.length, steps])
 
+  if (isPrint) return (
+    <div className="print">
+      {slides.map((s, i) => <div key={i} className="page" data-tone={s.tone ?? 'sea'}><div className="stage"><SlideFrame def={s} step={s.steps ?? 0} mode="thumb" /></div></div>)}
+    </div>
+  )
   if (isPresenter) return <Presenter slides={slides} steps={steps} pos={pos} go={go} />
 
   return (

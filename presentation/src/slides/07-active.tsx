@@ -14,7 +14,7 @@ const nodes: DNode[] = stages.map((label, k) => {
   const a = (-90 + 72 * k) * (Math.PI / 180)
   return { id: `n${k}`, x: C.x + R * Math.cos(a), y: C.y + R * Math.sin(a), w: 236, h: 76, label, tone: tones[k], step: k + 1, shape: 'pill', size: 24 }
 })
-const edges: DEdge[] = stages.map((_, k) => ({ from: `n${k}`, to: `n${(k + 1) % 5}`, bend: -0.2, tone: 'ink', step: k === 4 ? 5 : k + 1, delay: k === 4 ? 0.3 : 0.45 }))
+const edges: DEdge[] = stages.map((_, k) => ({ from: `n${k}`, to: `n${(k + 1) % 5}`, bend: -0.2, tone: 'ink', delay: 0.45 })) // each edge arrives with its target
 
 // belief over z: a wide prior that collapses to a narrow posterior (MorphSVG) at step 6
 const bell = (sigma: number, amp: number) => {

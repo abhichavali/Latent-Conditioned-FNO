@@ -279,6 +279,14 @@ p { margin: 0; }
 .p-notes .notes { flex: 1; overflow: auto; white-space: pre-line; font: 400 26px / 1.5 var(--sans); color: var(--ink); max-width: 75ch; }
 .p-notes nav { display: flex; gap: 10px; padding-top: 12px; }
 
+/* ---------- Print (?print): one 1920 × 1080 page per slide ---------- */
+@page { size: 1920px 1080px; margin: 0; }
+html:has(.print), html:has(.print) body, html:has(.print) #root { height: auto; overflow: visible; }
+.print .page { position: relative; width: 1920px; height: 1080px; overflow: hidden; break-after: page;
+  background: radial-gradient(ellipse at 10% -10%, color-mix(in oklab, var(--accent) 16%, transparent), transparent 55%), var(--bg);
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.print .page .stage { left: 0; top: 0; transform: none; }
+
 /* ---------- Reduced motion ---------- */
 @media (prefers-reduced-motion: reduce) {
   .backdrop .glow { animation: none; transition: none; }
