@@ -149,8 +149,8 @@ def make_ft(fno0, lr, pull, cap=4.0):
         def loss(w):
             fno = eqx.combine(w, frozen)
             b = {k: data[k][si] for k in ev.KEYS}
-            pred = jax.vmap(lambda bb, tq, zz: fno(bb["u0"], bb["st"], bb["pres"], bb["aux"], tq, zz, bb["logT"], bb["logL"]))(
-                b, data["t"][qi], z)
+            f = jax.checkpoint(lambda bb, tq, zz: fno(bb["u0"], bb["st"], bb["pres"], bb["aux"], tq, zz, bb["logT"], bb["logL"]))
+            pred = jax.vmap(f)(b, data["t"][qi], z)
             return train.rel_l2(pred[:, None], data["y"][si, qi][:, None], b["pres"][:, :F_MAX], cap=cap)[0]
 
         l, g = eqx.filter_value_and_grad(loss)(w)
@@ -303,13 +303,15 @@ def summary(a):
     for ax, t in zip(axes[0], tg):
         sc_path = f"{a.scratch}/{t}.json"
         sc = scratch_curve(sc_path, key) if os.path.exists(sc_path) else None
-        target = None
+        target, refs = None, {}
         if sc is not None and len(sc[0]):
             k = np.argmin(np.abs(sc[0] - a.target_n))
             target = float(sc[1][k])
+            refs = {int(N): float(e) for N, e in zip(*sc)}
             ax.plot(sc[0], sc[1], "o-", color=colors["scratch"], label="FNO from scratch", ms=3)
             ax.axhline(target, color=colors["scratch"], ls=":", lw=0.8)
-        row = {"target_error": target, "target_from": f"scratch at N={int(sc[0][k])}" if target is not None else None}
+        row = {"target_error": target, "target_from": f"scratch at N={int(sc[0][k])}" if target is not None else None,
+               "scratch_curve": refs}
         for m in ("active", "random", "generic"):
             h = f"{a.results}/active/{t}_{m}/history.jsonl"
             if not os.path.exists(h):
@@ -321,6 +323,7 @@ def summary(a):
                         alpha=1.0 if br == "ft" else 0.7)
                 row[m][br] = {"zero_shot": float(e[0]), "final": float(e[-1]), "n_final": int(n[-1]),
                               "sims_to_target": sims_to(n, e, target) if target is not None else None,
+                              "sims_to_scratch_at": {N: sims_to(n, e, v) for N, v in refs.items()},
                               "curve": [[int(x), float(y)] for x, y in zip(n, e)]}
         if sc is not None and target is not None:
             row["scratch"] = {"sims_to_target": sims_to(sc[0].astype(float), sc[1], target)}

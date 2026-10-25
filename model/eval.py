@@ -44,7 +44,7 @@ KEYS = ("u0", "st", "pres", "aux", "logT", "logL")
 
 # ---------------------------------------------------------------- model, priors
 def brief(r, keys=("raw_slot0", "rel_slot0", "rel_all")):
-    return {m: [round(v[k], 4) for k in keys] for m, v in r.items() if isinstance(v, dict)}
+    return {m: [round(v[k], 4) for k in keys] for m, v in r.items() if isinstance(v, dict) and keys[0] in v}
 
 
 def load(run, ckpt=None, data_dir="/workspace/data"):
@@ -261,12 +261,12 @@ def make_fitter(fno, lr=0.05, cap=4.0):
 
             def one(zk, s, q):
                 b = {k: data[k][s] for k in KEYS}
-                pred = jax.vmap(lambda bb, tq: fno(bb["u0"], bb["st"], bb["pres"], bb["aux"], tq, zk, bb["logT"], bb["logL"]))(
-                    b, data["t"][q])
+                f = jax.checkpoint(lambda bb, tq: fno(bb["u0"], bb["st"], bb["pres"], bb["aux"], tq, zk, bb["logT"], bb["logL"]))
+                pred = jax.vmap(f)(b, data["t"][q])  # remat: K * M backward passes fit in ~6 GB
                 rel, _ = train.rel_l2(pred[:, None], data["y"][s, q][:, None], b["pres"][:, :F_MAX], cap=cap)
                 return rel
 
-            d = jax.vmap(one)(z, si, qi)
+            d = jax.lax.map(lambda a: one(*a), (z, si, qi), batch_size=8)  # 8 particles at a time: memory / 4
             return (w_data * d + w_prior * ((eps - anchor) ** 2).sum(-1)).sum(), d
 
         (_, d), g = jax.value_and_grad(loss, has_aux=True)(eps)
