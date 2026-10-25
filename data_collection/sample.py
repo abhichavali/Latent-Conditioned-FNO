@@ -1,10 +1,14 @@
 """Random equations in the template vocabulary, GPU initial-condition pools, and max-entropy IC selection.
 
-Families (weights): transport/waves near SWE 0.35, excitable/reaction-diffusion near Aliev-Panfilov 0.35,
-pattern formation 0.2, free composition 0.1; then 0-2 random extra library terms.  Coefficients are drawn
-relative to the grid (diffusion ~ (few dx)^2 * rate, viscosity ~ U dx) so fronts and shocks stay resolved.
+Families (weights): transport/waves near SWE 0.3, excitable/reaction-diffusion near Aliev-Panfilov 0.3,
+pattern formation 0.2, free composition 0.2; non-free families then get 0-4 random extra library terms (mutate).
+Building blocks: 3-field transport equations use a random subset of SWE_PIECES (flux, adv, grad, bathy), composite
+excitable ones a subset of AP_PIECES (cubic, uv, gate), so each piece appears alone and in pairs (pick).
+Dropout: in 60% of equations each non-diffusive, non-core term is dropped with p = 0.1, so terms a family always
+emits together also appear apart.  Coefficients are drawn relative to the grid (diffusion ~ (few dx)^2 * rate,
+viscosity ~ U dx) so fronts and shocks stay resolved.
 Holdout: the exact SWE core (flux div(h u) + material advection + g grad h) and the Aliev-Panfilov core
-(cubic kinetics + -uv + v/(u+mu) gate) are never emitted.
+(cubic kinetics + -uv + v/(u+mu) gate) are never emitted (checked on the final coefficients).
 """
 
 import math

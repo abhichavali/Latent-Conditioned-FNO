@@ -22,8 +22,8 @@ root per field; edges are `[child, parent, arg position]` (position matters only
 |---|---|
 | `pde.py` | spec → graph / LaTeX; generic exponax ETDRK solver for any spec (one compile per spec) |
 | `template.py` | 2- and 3-field coefficient templates: an equation is a coefficient matrix over a fixed term library, so one compile serves all equations, vmapped over equations × ICs; specs are generated from the coefficients |
-| `sample.py` | equation families (transport/waves near SWE, excitable/reaction–diffusion near Aliev–Panfilov, pattern formation, free composition) + mutations; GPU IC pools (7 pattern families, patches, wakes, vortex seeds); max-entropy (greedy log-det over bounded spectral/amplitude/rate features) window selection, capped at 25% per IC family and 2/3 early windows |
-| `generate.py` | per-equation dt / frame-interval calibration, pool rollout over two 14-step windows, selection of 73 windows, writer |
+| `sample.py` | equation families (transport/waves near SWE, excitable/reaction–diffusion near Aliev–Panfilov, pattern formation, free composition) + SWE / AP building-block subsets, mutations and term dropout; GPU IC pools (7 pattern families, patches, wakes, vortex seeds); max-entropy (greedy log-det over bounded spectral/amplitude/rate features) window selection, capped at 25% per IC family and 2/3 early windows |
+| `generate.py` | per-equation dt / frame-interval calibration, pool rollout over `--windows` consecutive 14-step windows, selection of `--keep` windows, writer; resumable, `--id-offset` lets several GPUs share one `--out` |
 | `coverage.py` | building-block coverage: equations and partner terms per library term, SWE / AP pieces alone and in pairs, terms that always co-occur; for the sampler (`--sample 4096`) or a dataset (`--out DIR`, writes `coverage.json`) |
 | `demos.py` | shallow water and Aliev–Panfilov as specs, simulated and written for `viz/tsunami` and `viz/heart` |
 
@@ -31,13 +31,39 @@ root per field; edges are `[child, parent, arg position]` (position matters only
 
 `index.jsonl` (one line per equation) and `eq_XXXX/`:
 - `spec.json` — spec + `latex`, `graph`, `template` coefficients, `norm`, per-sample IC family and window start
-- `u.npy` — float16 `(73, 15, fields, 128, 128)` = `(u - norm.shift) / norm.scale`
-- `static.npy` — float16 `(73, 128, 128)`, raw, when the equation has a static field
+- `u.npy` — float16 `(ICs, 15, fields, 128, 128)` = `(u - norm.shift) / norm.scale`
+- `static.npy` — float16 `(ICs, 128, 128)`, raw, iff `spec["static"]` is non-empty
+
+## Datasets
+
+**A** — 1024 equations x 73 ICs, pre-v2 sampler (before `ec1a5f0`): 512-IC pool, 2 windows, fixed per-frame change 0.12.
 
 ```sh
-python generate.py --out /workspace/pdegen/out --pool 512                          # 1024 eqs x 73 ICs, resumable
-python generate.py --out /workspace/pdegen/out --n 4096 --keep 18 --pool 128 --seed 1   # 4096 eqs x 18 ICs, disjoint
-python ../viz/dataset/serve.py --data /workspace/pdegen/out       # viewer, then: ssh -N -L 8000:localhost:8000 pdebox
+python generate.py --out /workspace/pdegen/out --pool 512
+```
+
+**B** — 4096 equations x 18 ICs, current sampler, one worker per GPU (worker 1: `CUDA_VISIBLE_DEVICES=1 ... --id-offset 2048 --seed 2`):
+
+```sh
+CUDA_VISIBLE_DEVICES=0 XLA_PYTHON_CLIENT_MEM_FRACTION=.9 python generate.py --out /workspace/pdegen/out \
+    --n 2048 --keep 18 --pool 128 --windows 3 --target 0.06 0.24 --permute 0.5 --id-offset 0 --seed 1
+```
+
+- building blocks: 3-field transport equations take a random subset of the SWE pieces {flux, adv, grad, bathy},
+  composite excitable ones a subset of the AP pieces {cubic, uv, gate}, so each appears alone and in pairs; the
+  holdout cores (flux+adv+grad, cubic+uv+gate) are never emitted
+- dropout: in 60% of equations each non-diffusive, non-core term is dropped with p = 0.1
+- field-label permutation: with p = 0.5 the saved field order is shuffled
+- frame interval: each equation's per-frame change target is log-uniform in [0.06, 0.24]
+- 128 ICs x 3 consecutive windows = 384 candidate windows, 18 kept
+
+Extra spec keys in B: `pieces` (SWE / AP blocks present, read off the coefficients), `perm` (saved field j is
+internal field `perm[j]`; `fields`, `rhs`, `ic`, `norm` already renamed to match), `target_change`.
+
+```sh
+python coverage.py --sample 4096                                   # what the sampler draws
+JAX_PLATFORMS=cpu python coverage.py --out /workspace/pdegen/out   # a dataset; writes out/coverage.json
+python ../viz/dataset/serve.py --data /workspace/pdegen/out        # viewer, then: ssh -N -L 8000:localhost:8000 <box>
 ```
 
 Self-checks: `python pde.py`, `python template.py`, `python sample.py`.
