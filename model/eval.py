@@ -319,6 +319,9 @@ def main():
     ap.add_argument("--tau", type=float, default=0.0, help="also evaluate the graph prior with sigma -> tau sigma")
     ap.add_argument("--skip", nargs="*", default=[], help="sections to skip: data (all below) valic rehearsal calib")
     a = ap.parse_args()
+    import resource
+
+    resource.setrlimit(resource.RLIMIT_NOFILE, (resource.getrlimit(resource.RLIMIT_NOFILE)[1],) * 2)  # one mmap per equation
     cfg, S, (fno, enc, Z), path = load(a.run, a.ckpt)
     step = int(os.path.basename(path)[5:13])
     out = a.out or f"/workspace/results/{os.path.basename(a.run.rstrip('/'))}_s{step}"
