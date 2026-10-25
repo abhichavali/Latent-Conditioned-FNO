@@ -28,8 +28,8 @@
       "note": "1,000 random quakes run one at a time on both sides (batch 1), RTX 5090, after warm-up (demo_bank.py timing_seq). Results slide speed stat."
     },
     "fire": {
-      "simula_seconds": null,
-      "solver_seconds": null,
+      "simula_seconds": 0.0186,
+      "solver_seconds": 0.0724,
       "note": "one wildfire rollout, batch 1 (demo, wildfire tab)"
     }
   },

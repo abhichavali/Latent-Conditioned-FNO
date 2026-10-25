@@ -10,9 +10,9 @@ const TEXT = {
   heart: { kicker: (abl: boolean) => abl ? 'Heart · ablation planning' : 'Heart · scar risk', place: 'Click the tissue to place a scar',
     formed: (abl: boolean) => abl ? 'An arrhythmia forms. Try an ablation line' : 'An arrhythmia forms around the scar', ask: 'Does this line stop it?',
     panel: 'Ablation sites', ok: 'stops it', no: 'keeps going', yes: '✓ Arrhythmia stopped', nope: '✗ Still spiralling', screen: 'scar layouts' },
-  fire: { kicker: () => 'Wildfire · firebreak planning', place: 'Click the forest to start a fire',
-    formed: (abl: boolean) => abl ? 'The fire heads for the town. Try a firebreak' : 'The fire spreads with the wind', ask: 'Does this firebreak save the town?',
-    panel: 'Firebreaks', ok: 'saves it', no: 'town burns', yes: '✓ Town saved', nope: '✗ Town burns', screen: 'firebreak plans' },
+  fire: { kicker: (abl: boolean) => abl ? 'Wildfire · firebreak planning' : 'Wildfire · spread forecast', place: 'Click the forest to start a fire',
+    formed: (abl: boolean) => abl ? 'The fire heads for the town. Try a firebreak' : 'The wind drives the fire toward the town', ask: 'Does this firebreak save the town?',
+    panel: 'Firebreaks', ok: 'saves it', no: 'town burns', yes: '✓ Town saved', nope: '✗ Town burns', screen: 'ignition scenarios' },
 }
 
 export const HeartDemo = () => <SheetDemo kind="heart" />
