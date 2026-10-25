@@ -82,13 +82,14 @@ def save(path, x):
 
 
 def upsample(x, k):
-    """(n, T, N, N) -> (n, (T - 1) k + 1, N, N): motion-compensated in-between frames (baseline_FNO/interp.py)."""
+    """(n, T, [C,] N, N) -> (n, (T - 1) k + 1, [C,] N, N): motion-compensated in-between frames (baseline_FNO/interp.py;
+    channel 0 drives the flow)."""
     if k == 1:
         return x
     sys.path.append(os.path.join(HERE, "..", "baseline_FNO"))
     import interp
 
-    return np.stack([interp.upsample(f[:, None], k)[:, 0] for f in x])
+    return np.stack([interp.upsample(f.reshape(len(f), -1, *f.shape[-2:]), k).reshape(-1, *f.shape[1:]) for f in x])
 
 
 # ---------------------------------------------------------------- tsunami: epicentre grid + risk map
@@ -306,6 +307,132 @@ def heart(a):
     print(f"wrote {out}; shown lines agree {sum(shown)}/{len(shown)}", flush=True)
 
 
+# ---------------------------------------------------------------- fire: ignitions x firebreaks, does the town burn?
+TOWN, LAKE = (0.74, 0.62, 0.07), (0.6, 0.86, 0.07)  # (x, y, r) in the unit square; wind 0.4 toward +x at 30 deg
+
+
+def fire_ic(fuel, ign, brk=None):
+    """targets_fire.make_ic with one fixed fuel map (its noise seed otherwise hashes the whole knob vector): ignition
+    (x, y, r), one firebreak (x, y, angle, half_len, width) or None, and the lake -> ic (2, N, N)."""
+    import targets_fire as tf
+
+    kw = dict(ign0_on=1, ign0_x=ign[0], ign0_y=ign[1], ign0_radius=ign[2], lake_on=1, lake_x=LAKE[0], lake_y=LAKE[1],
+              lake_radius=LAKE[2])
+    if brk is not None:
+        kw.update(brk0_on=1, **{f"brk0_{n}": v for n, v in zip(("x", "y", "angle", "half_len", "width"), brk)})
+    f0, tf._fuel = tf._fuel, lambda p, k: fuel.copy()  # make_ic cuts the breaks into it in place
+    try:
+        return tf.make_ic(params("fire", 1, **kw)[0]).astype(np.float32)
+    finally:
+        tf._fuel = f0
+
+
+def fire_d(tr, f0):
+    """(..., T, 2, N, N) u, f and the IC fuel f0 -> display field d (..., T, N, N) in [0, 1] (umax = fmax = 1)."""
+    u, f, f0 = tr[..., 0, :, :], tr[..., 1, :, :], f0[..., None, :, :]
+    d = np.where(f0 < 0.1, 0.45, 0.05 + 0.15 * np.clip(f, 0, 1))  # unburned fuel; fuel-free (lake, firebreak)
+    d = np.where(f0 - f > 0.1, 0.32, d)  # burned
+    return np.where(u > 0.1, 0.55 + 0.45 * np.clip(u, 0, 1), d).astype(np.float16)  # burning
+
+
+def town_burns(tr, f0):
+    """(n, T, 2, N, N) -> the town (TOWN disk) burned or burning over > 10% of its area at the end (targets_fire.stats
+    conventions: burned = fuel below half its IC value, burning = u > 0.3)."""
+    X, Y = targets._grid(f0.shape[-1])
+    t = np.hypot(X - TOWN[0], Y - TOWN[1]) < TOWN[2]
+    return (((tr[:, -1, 1] < 0.5 * f0) | (tr[:, -1, 0] > 0.3))[:, t]).mean(1) > 0.1
+
+
+def pick_mix(idx, stop, agree, n):
+    """Up to n of the candidates idx, agreeing ones only, alternating the two outcomes."""
+    a, b = [j for j in idx if agree[j] and stop[j]], [j for j in idx if agree[j] and not stop[j]]
+    return [j for p in zip(a + [None] * len(b), b + [None] * len(a)) for j in p if j is not None][:n]
+
+
+def fire(a):
+    import targets_fire as tf
+
+    out, k, N = f"{a.out}/fire", a.interp, 128
+    pred = load(a.models, "fire")
+    pb = params("fire", 1, fuel_mean=0.88, fuel_contrast=0.15, fuel_corr=0.08)[0]
+    fuel = tf._fuel(pb, dict(zip(tf.KNOBS, pb)))
+    tx, ty, _ = TOWN
+    sites = [(tx - d * np.cos(np.pi / 6 + ph), ty - d * np.sin(np.pi / 6 + ph), 0.05)  # upwind of the town
+             for d in (0.3, 0.42) for ph in np.radians([-50, -25, 0, 25, 50])]
+
+    def breaks(s):  # across the site -> town path: position along it x half length x width (2.3 cells: jumped; 4.5: holds)
+        dx, dy = tx - s[0], ty - s[1]
+        return [(s[0] + q * dx, s[1] + q * dy, np.arctan2(dy, dx) + np.pi / 2, hl, w)
+                for q in (0.4, 0.6) for hl in (0.08, 0.16, 0.26) for w in (0.018, 0.035)]
+
+    cand = [(i, b) for i, s in enumerate(sites) for b in [None] + breaks(s)]
+    ics = np.stack([fire_ic(fuel, sites[i], b) for i, b in cand])
+    st, t14 = np.zeros((len(ics), 0, N, N), np.float32), np.arange(1, 15) / 14
+    tj = f"{a.out}/timing.json"
+    T = json.load(open(tj)) if os.path.exists(tj) else {}
+    T["fire"] = {"simula_seconds": clock(lambda: pred(ics[:1], st[:1], t14)),
+                 "solver_seconds": clock(lambda: solve("fire", ics[:1], st[:1], batch=1)),
+                 "what": f"one fire rollout, 15 frames over 21 t.u., batch 1 ({len(np.load(f'{a.models}/fire/z.npy'))} particle)"}
+    json.dump(T, open(tj, "w"), indent=1)
+    print("timing", T["fire"], flush=True)
+    m, y = chain(pred, ics, st, 1, 15), solve("fire", ics, st, 1)
+    sim, sol = town_burns(m, ics[:, 1]), town_burns(y, ics[:, 1])
+    agree, owner = sim == sol, np.array([i for i, _ in cand])
+    nb = np.array([b is None for _, b in cand])
+    print(f"fire: no break: town burns solver {sol[nb].sum()}/{nb.sum()}, Simula {sim[nb].sum()}; lines: solver saves "
+          f"{(~sol[~nb]).sum()}/{(~nb).sum()}, Simula {(~sim[~nb]).sum()}, agree {agree[~nb].sum()}", flush=True)
+    rows = []  # sites where the town burns without a break (solver), ranked: Simula agrees, a mix of shown outcomes
+    for i in range(len(sites)):
+        j0 = int(np.flatnonzero(nb & (owner == i))[0])
+        idx = sorted(np.flatnonzero(~nb & (owner == i)), key=lambda j: not agree[j])  # agreeing ones first
+        sh = pick_mix(idx, ~sol, np.ones(len(sol), bool), a.n_lines)  # a mix of the solver's saves and fails
+        if sol[j0]:
+            rows.append(((int(agree[j0]), len({bool(sol[j]) for j in sh}), sum(agree[j] for j in sh)), i, j0, sh))
+    rows = sorted(rows, key=lambda r: r[0], reverse=True)[: a.n_sites]
+    J = [j for _, _, j0, sh in rows for j in [j0] + sh]
+    fd = fire_d(upsample(m[J], k), ics[J, 1])  # Simula at its own frames + motion-compensated in between
+    yd = fire_d(solve("fire", ics[J], st[J], 1, 14 * k + 1), ics[J, 1])  # the solver's true frames at every stored time
+    D, ent = dict(zip(J, zip(fd, yd))), []
+    for n, (_, i, j0, sh) in enumerate(rows):
+        sid = f"s{n}"
+        save(f"{out}/{sid}/u.npy", D[j0][0]), save(f"{out}/{sid}/u_solver.npy", D[j0][1])
+        abl = []
+        for c, j in enumerate(sh):
+            x, y_, th, hl, w = cand[j][1]
+            e = hl * np.array([np.cos(th), np.sin(th)])
+            lid = "abcdef"[c]
+            save(f"{out}/{sid}/{lid}.npy", D[j][0]), save(f"{out}/{sid}/{lid}_solver.npy", D[j][1])
+            abl.append({"id": lid, "label": f"Break {lid.upper()}", "line": [[frac(x - e[0]), frac(y_ - e[1])], [frac(x + e[0]), frac(y_ + e[1])]],
+                        "width": frac(w), "frames": f"{sid}/{lid}.npy", "solver": f"{sid}/{lid}_solver.npy",
+                        "stops_arrhythmia": bool(~sim[j]), "solver_stops": bool(~sol[j])})
+        ent.append({"id": sid, "x": frac(sites[i][0]), "y": frac(sites[i][1]), "r": frac(sites[i][2]), "frames": f"{sid}/u.npy",
+                    "solver": f"{sid}/u_solver.npy", "spiral": bool(sim[j0]), "solver_spiral": bool(sol[j0]), "ablations": abl})
+    shown = [bool(agree[j]) for _, _, _, sh in rows for j in sh]
+    saves = sum(bool(~sim[j]) for _, _, _, sh in rows for j in sh)
+    L = ~nb
+    idx = {"version": 1, "mock": False, "variant": "firebreak", "grid": {"nx": N, "ny": N}, "geometry": "sheet",
+           "dt": targets.SPECS["fire"]["frame_dt"] / k, "time_unit": "t.u.", "range": [0, 1],
+           "asset": {"x": frac(TOWN[0]), "y": frac(TOWN[1]), "r": frac(TOWN[2]), "label": "Town"}, "wind": [0.866, 0.5],
+           "agreement": {"lines": int(L.sum()), "lines_agree": int(agree[L].sum()), "no_break": int(nb.sum()),
+                         "no_break_agree": int(agree[nb].sum()), "shown": len(shown), "shown_agree": int(sum(shown)), "shown_saves": saves},
+           "note": (
+        f"Simula ({a.models}/fire, 1 particle) vs the GPU pseudo-spectral solver, targets_fire (u heat, f fuel; wind 0.4 "
+        f"toward +x at 30 deg). One fixed fuel map (mean 0.88, contrast 0.15, corr 0.08), a lake {LAKE}, the town {TOWN} "
+        f"(x, y, r of the unit square). {len(sites)} ignition sites (r 0.05) 0.3 / 0.42 upwind, each with 12 candidate "
+        f"firebreaks (fuel-free strips across the path, 2.3 or 4.5 cells wide); shown: the sites where the solver burns "
+        f"the town without a break, and up to {a.n_lines} breaks per site mixing the solver's saves and fails (agreeing "
+        f"ones first). Simula saves the town with {(~sim[~nb]).sum()}/{(~nb).sum()} breaks, the solver with "
+        f"{(~sol[~nb]).sum()}: Simula's fire does not stop at the breaks, so every shown save is a disagreement. Verdict: the town burned (fuel < half its IC value) or burning (u > 0.3) over > 10% of its area at the end of the 21 t.u. window "
+        f"(spiral = burns with no break; stops_arrhythmia = Simula: town safe; solver_stops = solver: town safe). "
+        f"Agreement over all candidates: lines {agree[L].sum()}/{L.sum()}, no-break {agree[nb].sum()}/{nb.sum()}. "
+        f"Frames: Simula at its 15 frames, {k - 1} motion-compensated frame(s) in between (on u, f); solver = true frames "
+        f"at the same times. d encoding (same for both): burning (u > 0.1) 0.55 + 0.45 clip(u); burned (fuel dropped by "
+        f"> 0.1 from the IC) 0.32; fuel-free (IC fuel < 0.1, not burning) 0.45; unburned fuel 0.05 + 0.15 f."),
+           "scars": ent}
+    json.dump(idx, open(f"{out}/index.json", "w"), indent=1)
+    print(f"wrote {out}: {len(ent)} sites, {len(shown)} breaks shown ({saves} saves), all agree {all(shown)}", flush=True)
+
+
 # ---------------------------------------------------------------- timings
 def clock(f, reps=3):
     f()  # warm-up / compile
@@ -378,6 +505,14 @@ def check():
     P = params("swe", 3, src0_x=[0.1, 0.2, 0.3], src0_on=1)
     assert P[:, targets.KNOBS["swe"].index("src0_x")].tolist() == [np.float32(0.1), np.float32(0.2), np.float32(0.3)]
     assert frac(127 / 128) == 1.0
+    assert pick_mix(range(5), [1, 1, 0, 0, 1], [1, 1, 1, 0, 1], 4) == [0, 2, 1, 4]
+    tr = np.zeros((1, 2, 2, 128, 128), np.float32)
+    tr[..., 1, :, :] = 1
+    tr[0, 1, 0, 0, 0], tr[0, 1, 1, 0, 1] = 1.0, 0.5  # burning; burned
+    f0 = np.ones((1, 128, 128), np.float32)
+    f0[0, 0, 2] = 0  # fuel-free
+    d = fire_d(tr, f0)[0, 1, 0]
+    assert abs(d[0] - 1.0) < 1e-3 and abs(d[1] - 0.32) < 1e-3 and abs(d[2] - 0.45) < 1e-3 and abs(d[3] - 0.2) < 1e-3
     print("check ok")
 
 
@@ -396,6 +531,8 @@ if __name__ == "__main__":
     ap.add_argument("--n_ic", type=int, default=16, help="heart: candidate ICs searched")
     ap.add_argument("--variant", default="scar_only", choices=["scar_only", "ablation"])
     ap.add_argument("--n_scar", type=int, default=3, help="heart: scar grid per axis")
+    ap.add_argument("--n_sites", type=int, default=8, help="fire: ignition sites shown")
+    ap.add_argument("--n_lines", type=int, default=5, help="fire: firebreaks shown per site")
     ap.add_argument("--scar_r", type=float, default=0.12)
     ap.add_argument("--scar_D", type=float, default=0.03)
     ap.add_argument("--line_half", type=float, default=0.025)
