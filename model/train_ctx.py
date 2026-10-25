@@ -11,6 +11,11 @@ the first v3 run collapsed q to context-invariance by step ~1100 (KL 127 -> 0.05
 Graph-term dropout (g_drop): G carries every coefficient (canon: sign, log10|c|), so on training equations C is redundant
 and q(z | G, C) ~ q(z | G) (second run, step 6k: k0..k64 and k16ct equal to 4 decimals, dmu 0.08 on |z| = 11).  For a
 g_drop fraction of equations each graph term is dropped with probability rho ~ U(0, 1), so z must come from C.
+Encoder freeze (enc_freeze): even so q collapsed to one z for every equation (across-equation std of the k = 0 mean
+1e-4 at step 8k vs 0.14 at init; dropping G moved val error < 1e-4): the decoder's z path starts at zero, so to it z
+variation is noise and the encoder's best early move is a constant z.  For the first enc_freeze of the steps the
+encoder stays at its random init and z = mu (no sampling): the decoder first learns to use those fixed, G- and
+C-dependent features, then the encoder trains (and beta ramps) from there.
 Non-finite updates are skipped; a log window
 with only non-finite steps exits without a checkpoint (run.sh resumes from the last finite one).
 
@@ -77,7 +82,7 @@ def posterior(enc, b, G, masks, tkeep=None):
 
 def make_steps(opt, cap, g_drop=0.0):
     @eqx.filter_jit
-    def train_step(params, opt_state, b, G, key, beta):
+    def train_step(params, opt_state, b, G, key, beta, on):
         def loss_fn(params):
             fno, enc = params
             k1, k2, k3, key_z = jax.random.split(key, 4)
@@ -85,7 +90,7 @@ def make_steps(opt, cap, g_drop=0.0):
             rho = jnp.where(jax.random.uniform(k1, (E,)) < g_drop, jax.random.uniform(k2, (E,)), 0.0)
             tkeep = (jax.random.uniform(k3, (E, T)) >= rho[:, None]).astype(jnp.float32)
             mu, ls = posterior(enc, b, G, jnp.stack([b["cmask"], b["ctmask"]], 1), tkeep)
-            z = mu + jnp.exp(ls) * jax.random.normal(key_z, mu.shape)  # (E, 2, dz): C, C u T
+            z = mu + on * jnp.exp(ls) * jax.random.normal(key_z, mu.shape)  # (E, 2, dz): C, C u T
             fb, Q = flat(b)
             pc = (jnp.arange(z.shape[0] * Q) % Q < Q // 2)[:, None]  # rows decoded from q(z | G, C)
             zz = jnp.where(pc, jnp.repeat(z[:, 0], Q, 0), jnp.repeat(z[:, 1], Q, 0))
@@ -96,11 +101,13 @@ def make_steps(opt, cap, g_drop=0.0):
             avg = lambda v, w: (v * w).sum() / jnp.maximum(w.sum(), 1)
             aux = {"rel": rel, "rel_c": (r * mc).sum() / jnp.maximum(mc.sum(), 1), "kl": kl.mean(), "kl_k0": avg(kl, k0), "kl_kpos": avg(kl, 1 - k0),
                    "sig_c": jnp.exp(ls[:, 0]).mean(), "sig_ct": jnp.exp(ls[:, 1]).mean(),
-                   "dmu": jnp.sqrt(((mu[:, 1] - mu[:, 0]) ** 2).sum(-1)).mean(), "k_mean": b["k"].mean()}
+                   "dmu": jnp.sqrt(((mu[:, 1] - mu[:, 0]) ** 2).sum(-1)).mean(), "k_mean": b["k"].mean(),
+                   "zstd": mu[:, 0].std(0).mean()}  # across the batch's equations: ~0 = q collapsed to one z
             loss = rel + beta * kl.mean()
             return loss, {"loss": loss, **aux}
 
         (_, aux), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(params)
+        grads = (grads[0], jax.tree_util.tree_map(lambda g: g * on, grads[1]))  # encoder frozen while on = 0
         upd, opt_state = opt.update(grads, opt_state, eqx.filter(params, eqx.is_array))
         aux["gnorm"] = optax.global_norm(grads)
         return eqx.apply_updates(params, upd), opt_state, aux
@@ -245,6 +252,7 @@ def main():
     base_key = jax.random.PRNGKey(t["seed"] + 1)
     total = t["steps"]
     ramp, delay = max(int(t["beta_ramp"] * total), 1), int(t.get("beta_delay", 0) * total)
+    freeze = int(t.get("enc_freeze", 0) * total)
     it = stream.iterate(step)
     acc, t_ck, t_log, s_log = [], time.time(), time.time(), step
     log({"event": "start", **validate()})
@@ -252,7 +260,8 @@ def main():
     while step < total:
         beta = t["beta"] * max(t["beta_floor"], min(max(step - delay, 0) / ramp, 1.0))
         b = jax.device_put(next(it))
-        params, opt_state, aux = train_step(params, opt_state, b, Gd, jax.random.fold_in(base_key, step), jnp.float32(beta))
+        params, opt_state, aux = train_step(params, opt_state, b, Gd, jax.random.fold_in(base_key, step), jnp.float32(beta),
+                                            jnp.float32(step >= freeze))
         acc.append(aux)
         step += 1
         if step % t["log_every"] == 0 or step == total:
