@@ -5,7 +5,7 @@ import * as THREE from 'three'
 import { useMode } from '../deck/SlideFrame'
 import { loadBank, loadFrames, ratio, timing, useAsync, type TsunamiBank } from './bank'
 import { Clip, etaMax, tsunami } from './engines'
-import { BankStatus, Poster, slow } from './hud'
+import { BankStatus, Poster, SIDE_RACE, slow } from './hud'
 
 // closer than the engine's default: the island and the coast fill the frame
 const VIEW = { pos: new THREE.Vector3(-58, 26, 58), target: new THREE.Vector3(-4, 0, 8) }
@@ -51,11 +51,11 @@ export function RaceView({ t, setup, mock, fps }: { t: ReturnType<typeof timing>
       const L = { engine: Le }, R = { engine: Re }
       const fast = new Clip(fps, true, 1.5), done = new Clip(fps, true, 1.5)
       let t0 = -1, finished = false
-      go.current = () => { t0 = performance.now(); finished = false; fast.play(sim, t.simula * slow(t)) }
+      go.current = () => { t0 = performance.now(); finished = false; fast.play(sim, t.simula * slow(t, SIDE_RACE)) }
       R.engine.onFrame = dt => t0 < 0 ? R.engine.setFrames(sim[0], sim[0], 0) : fast.tick(dt, (a, b, k) => R.engine.setFrames(a, b, k))
       L.engine.onFrame = dt => {
         if (t0 < 0) return L.engine.setFrames(solver[0], solver[0], 0) // waiting for the button
-        const s = (performance.now() - t0) / 1000 / slow(t), p = Math.min(s / t.solver, 1)
+        const s = (performance.now() - t0) / 1000 / slow(t, SIDE_RACE), p = Math.min(s / t.solver, 1)
         if (p < 1) { const f = solver[Math.floor(p * (solver.length - 1))]; L.engine.setFrames(f, f, 0) } // one solved step at a time
         else {
           if (!finished) { finished = true; done.play(solver) }

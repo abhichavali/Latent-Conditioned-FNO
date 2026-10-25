@@ -6,7 +6,8 @@ type T = ReturnType<typeof timing>
 
 /** Races are drawn to scale but stretched: the solver's side always takes RACE seconds on screen, Simula's its measured share of that. */
 export const RACE = 8
-export const slow = (t: { solver: number }) => RACE / t.solver
+export const SIDE_RACE = 24 // the side-by-side races: 3x longer on screen, same measured ratio
+export const slow = (t: { solver: number }, race = RACE) => race / t.solver
 
 /** The race card. run = restart key, 0 = idle. */
 export function SolverCard({ t, run, who = 'Simula', className = '' }: { t: T; run: number; who?: string; className?: string }) {
