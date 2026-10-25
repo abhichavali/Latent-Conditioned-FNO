@@ -21,7 +21,10 @@ export type SlideDef = {
 export type Mode = 'live' | 'thumb'
 const ModeCtx = createContext<Mode>('live')
 const BuildCtx = createContext<Map<string, Builder> | null>(null)
+const StepCtx = createContext(0)
 export const useMode = () => useContext(ModeCtx)
+/** The slide's current build step, for components that switch state per click (e.g. the demo's tabs). */
+export const useStep = () => useContext(StepCtx)
 
 /** Register per-step tweens from inside a component; runs once when the slide's timeline is built. */
 export function useBuild(fn: Builder) {
@@ -79,9 +82,11 @@ export function SlideFrame({ def, step, mode = 'live', role = 'in', dir = 0, onO
   return (
     <div ref={root} className="slide" data-tone={def.tone ?? 'sea'} aria-hidden={role === 'out' || mode === 'thumb'}>
       <ModeCtx.Provider value={mode}>
-        <BuildCtx.Provider value={builders.current}>
-          <C />
-        </BuildCtx.Provider>
+        <StepCtx.Provider value={step}>
+          <BuildCtx.Provider value={builders.current}>
+            <C />
+          </BuildCtx.Provider>
+        </StepCtx.Provider>
       </ModeCtx.Provider>
     </div>
   )

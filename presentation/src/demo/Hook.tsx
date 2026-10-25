@@ -1,0 +1,89 @@
+// Slide 1's side-by-side: the solver computing frame by frame at its measured speed vs the forecast, already done.
+import { useEffect, useRef, useState } from 'react'
+import * as THREE from 'three'
+import { useMode } from '../deck/SlideFrame'
+import { fmtClock, fmtDuration, loadBank, loadFrames, timing, useAsync, type TsunamiBank } from './bank'
+import { Clip, etaMax, tsunami } from './engines'
+import { BankStatus, Poster } from './hud'
+
+// closer than the engine's default: the island and the coast fill the frame
+const VIEW = { pos: new THREE.Vector3(-58, 26, 58), target: new THREE.Vector3(-4, 0, 8) }
+
+export function Hook() {
+  const live = useMode() === 'live'
+  const bank = useAsync(() => loadBank('tsunami'), [])
+  if (!live) return <div className="hook"><Poster label="Numerical solver" tone="ember" /><Poster label="Simula" /></div>
+  if (!bank.value) return <div className="hook"><BankStatus kind="tsunami" error={bank.error} /></div>
+  return <HookLive bank={bank.value} />
+}
+
+function HookLive({ bank }: { bank: TsunamiBank }) {
+  const left = useRef<HTMLDivElement>(null), right = useRef<HTMLDivElement>(null)
+  const clock = useRef<HTMLSpanElement>(null), bar = useRef<HTMLElement>(null), lState = useRef<HTMLSpanElement>(null)
+  const rClock = useRef<HTMLSpanElement>(null), rState = useRef<HTMLSpanElement>(null)
+  const [error, setError] = useState<string>()
+  const t = timing('tsunami')
+
+  useEffect(() => {
+    let dead = false, dispose = () => {}
+    const sc = bank.scenarios.find(s => s.id === bank.default) ?? bank.scenarios[0]
+    Promise.all([
+      loadFrames('tsunami', bank.bed, bank.grid),
+      loadFrames('tsunami', sc.frames, bank.grid),
+      sc.solver ? loadFrames('tsunami', sc.solver, bank.grid) : null,
+    ]).then(([[bed], sim, solved]) => {
+      if (dead) return
+      const L = tsunami(left.current!, bank, bed), R = tsunami(right.current!, bank, bed)
+      dispose = () => { L.dispose(); R.dispose() }
+      const solver = solved ?? sim
+      L.engine.etaMax = R.engine.etaMax = etaMax(bed, sim)
+      for (const v of [L, R]) { v.engine.camera.position.copy(VIEW.pos); v.engine.controls.target.copy(VIEW.target) }
+      const fast = new Clip(8, true, 1.5), slow = new Clip(8, true, 1.5)
+      fast.play(sim, t.simula)
+      const t0 = performance.now()
+      let finished = false
+      R.engine.onFrame = dt => fast.tick(dt, (a, b, k) => R.engine.setFrames(a, b, k))
+      L.engine.onFrame = dt => {
+        const s = (performance.now() - t0) / 1000, p = Math.min(s / t.solver, 1)
+        if (p < 1) { const f = solver[Math.floor(p * (solver.length - 1))]; L.engine.setFrames(f, f, 0) } // one solved step at a time
+        else {
+          if (!finished) { finished = true; slow.play(solver) }
+          slow.tick(dt, (a, b, k) => L.engine.setFrames(a, b, k))
+        }
+        if (!clock.current || !bar.current || !lState.current || !rClock.current || !rState.current) return // unmounting
+        clock.current.textContent = fmtClock(Math.min(s, t.solver))
+        bar.current.style.transform = `scaleX(${p})`
+        lState.current.textContent = p < 1 ? `still computing · ${Math.floor(p * 100)}%` : `done in ${fmtDuration(t.solver)}`
+        rClock.current.textContent = fmtClock(Math.min(s, t.simula))
+        rState.current.textContent = s < t.simula ? 'computing…' : `done in ${fmtDuration(t.simula)}`
+      }
+    }, e => !dead && setError(e.message))
+    return () => { dead = true; dispose() }
+  }, [bank, t.simula, t.solver])
+
+  const tags = [t.placeholder && 'placeholder timing', bank.mock && 'mock frames (baseline FNO, not Simula)'].filter(Boolean)
+  return (
+    <>
+      <div className="hook">
+        <div className="hook-panel t-ember">
+          <div ref={left} className="engine" />
+          <div className="hud-top">
+            <b><i className="dot" />Numerical solver</b>
+            <span ref={clock} className="clock">00:00.0</span>
+          </div>
+          <div className="hud-bottom"><div className="meter"><i ref={bar} /></div><span ref={lState} className="state" /></div>
+        </div>
+        <div className="hook-panel t-sea">
+          <div ref={right} className="engine" />
+          <div className="hud-top">
+            <b><i className="dot" />{bank.mock ? 'Mock · baseline FNO' : 'Simula'}</b>
+            <span ref={rClock} className="clock">00:00.0</span>
+          </div>
+          <div className="hud-bottom"><span ref={rState} className="state" /></div>
+        </div>
+        {error && <div className="bank-status"><strong>Couldn't load the hook</strong><p>{error}</p></div>}
+      </div>
+      {tags.length > 0 && <p className="ph-line">{tags.join(' · ')} · rehearsal only</p>}
+    </>
+  )
+}

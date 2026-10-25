@@ -1,0 +1,45 @@
+{
+  "placeholder": true,
+  "note": "Every headline number in the Simula deck comes from this file. null = not measured yet: the slide shows a dash and 'results pending'. Set placeholder to false once the numbers are real.",
+
+  "fewer_simulations": null,
+  "fewer_simulations_note": "X: simulations a standard AI model needs to reach Simula's accuracy, divided by the simulations Simula used (read off the chart below).",
+
+  "timing": {
+    "tsunami": { "simula_seconds": null, "solver_seconds": null, "note": "one tsunami forecast, wall clock: Simula prediction vs the numerical solver (hook slide + demo)" },
+    "heart": { "simula_seconds": null, "solver_seconds": null, "note": "one heart rollout, wall clock (demo, heart tab)" },
+    "batch": { "scenarios": 1000, "simula_seconds": null, "solver_seconds": null, "note": "the flood-risk map: this many earthquakes. Results slide: Y = solver_seconds / simula_seconds, Z = simula_seconds, W = solver_seconds in minutes" }
+  },
+
+  "rehearsal": {
+    "note": "NOT RESULTS. Durations the timers animate with while the measured values above are null; every view using them shows a 'placeholder timing' tag.",
+    "tsunami": { "simula_seconds": 1, "solver_seconds": 60 },
+    "heart": { "simula_seconds": 1, "solver_seconds": 60 },
+    "batch": { "simula_seconds": 1.5, "solver_seconds": 3600 }
+  },
+
+  "chart": {
+    "title": "Tsunami: forecast error vs. simulations used",
+    "x_label": "simulations of the new problem",
+    "y_label": "forecast error (lower is better)",
+    "series": [
+      { "id": "simula", "label": "Simula", "points": [] },
+      {
+        "id": "standard_ai",
+        "label": "Standard AI (trained from scratch)",
+        "source": "baseline_FNO/RESULTS.md, shallow water: FNO trained from scratch on N simulations, 19-step rollout-mean nRMSE on 128 held-out ICs. Simula's curve must use the same metric before the two are compared.",
+        "points": [
+          { "sims": 4, "error": 0.592 },
+          { "sims": 8, "error": 0.393 },
+          { "sims": 16, "error": 0.285 },
+          { "sims": 32, "error": 0.209 },
+          { "sims": 64, "error": 0.162 },
+          { "sims": 128, "error": 0.122 },
+          { "sims": 256, "error": 0.081 },
+          { "sims": 512, "error": 0.0678 },
+          { "sims": 1024, "error": 0.065 }
+        ]
+      }
+    ]
+  }
+}

@@ -12,7 +12,13 @@ import { Deck } from './deck/Deck'
 import type { SlideDef } from './deck/SlideFrame'
 
 // Every file in src/slides/ is a slide, ordered by file name. Adding a slide = adding a file.
-const modules = import.meta.glob<{ default: SlideDef }>('./slides/*.tsx', { eager: true })
+// ?deck=research opens the archived research-style deck in src/slides_research/.
+type Mod = { default: SlideDef }
+const research = new URLSearchParams(location.search).get('deck') === 'research'
+const modules = research
+  ? import.meta.glob<Mod>('./slides_research/*.tsx', { eager: true })
+  : import.meta.glob<Mod>('./slides/*.tsx', { eager: true })
+if (research) document.title = 'PDE Foundation Model'
 const slides = Object.keys(modules).sort().map(k => modules[k].default)
 
 /** Shows render errors on screen instead of a blank page. */

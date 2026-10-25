@@ -116,7 +116,7 @@ function Stage({ slides, pos, move }: { slides: SlideDef[]; pos: Pos; move: (d: 
       </div>
       {def.chrome !== false && (
         <footer className="chrome">
-          <span>{def.section ?? 'PDE Foundation Model'}</span>
+          <span>{def.section ?? document.title}</span>
           <span className="num">{pad(pos.i + 1)} <i>/ {pad(slides.length)}</i></span>
         </footer>
       )}

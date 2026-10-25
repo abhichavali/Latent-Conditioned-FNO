@@ -14,7 +14,7 @@ export function Presenter({ slides, steps, pos, go }: { slides: SlideDef[]; step
   const [paused, setPaused] = useState<number | null>(null) // elapsed ms while paused
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(id) }, [])
-  useEffect(() => { document.title = 'Presenter · PDE Foundation Model' }, [])
+  useEffect(() => { if (!document.title.startsWith('Presenter')) document.title = `Presenter · ${document.title}` }, [])
 
   const elapsed = paused ?? now - t0
   const next = advance(steps, pos, 1)
