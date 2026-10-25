@@ -17,17 +17,53 @@ import numpy as np
 
 import pde
 
-# Shallow water over bathymetry b (bed elevation, < 0 under water), surface elevation eta, depth h = eta - b.
-# Periodic and fully wet (spectral), so the "coast" is a shallow shelf rather than dry land.
+# Coastal tsunami: shallow water over bathymetry b (bed elevation, < 0 under water), surface elevation eta, depth
+# eta - b.  Spectral + periodic means no dry land, so land and the open-ocean edges are a sponge: a static damping
+# rate s (1/s) absorbs waves there.  The viewer gets a separate visual bed (beach + hills) on the sponge-land band.
 SWE = {
-    "fields": ["eta", "u", "v"], "static": ["b"], "L": 4000.0, "N": 128, "order": 4,
+    "fields": ["eta", "u", "v"], "static": ["b", "s"], "L": 4000.0, "N": 128, "order": 4,
     "dt": 0.25, "substeps": 8, "frames": 240,
     "rhs": {
-        "eta": "-dx((eta - b)*u) - dy((eta - b)*v) + 20*lap(eta)",
-        "u": "-u*dx(u) - v*dy(u) - 9.81*dx(eta) + 20*lap(u)",
-        "v": "-u*dx(v) - v*dy(v) - 9.81*dy(eta) + 20*lap(v)",
+        "eta": "-dx((eta - b)*u) - dy((eta - b)*v) + 8*lap(eta) - s*eta",
+        "u": "-u*dx(u) - v*dy(u) - 9.81*dx(eta) + 8*lap(u) - s*u",
+        "v": "-u*dx(v) - v*dy(v) - 9.81*dy(eta) + 8*lap(v) - s*v",
     },
 }
+
+
+def coast(spec):
+    """Unit-square geometry: sim bed b, sponge rate s, visual bed b_vis, land mask (all periodic and smooth)."""
+    X, Y = (np.asarray(a) / spec["L"] for a in pde.grid(spec))
+    T = lambda d, w: 0.5 * (1 + np.tanh(d / w))
+    xc = 0.62 + 0.035 * np.sin(2 * np.pi * 2 * Y + 0.6) + 0.02 * np.sin(2 * np.pi * 5 * Y + 2)  # wiggly coastline
+    sea = 12 + 46 * T(0.44 - X, 0.035)  # 58 m basin -> continental slope -> 12 m shelf
+    depth = 4 + (sea - 4) * T(xc - X - 0.06, 0.04)  # shoaling to ~4 m at the coast
+    land = T(X - xc, 0.008) * T(0.93 - X, 0.01)  # land band, back to deep water across the periodic seam
+    depth = depth * (1 - land) + 3 * land
+    r2 = (X - 0.3) ** 2 + (Y - 0.68) ** 2
+    island = np.exp(-r2 / (2 * 0.03**2))
+    depth = depth * (1 - 0.93 * island)  # island shoal (~4 m): waves refract around it
+    edge = 1 - (1 - T(X - xc - 0.03, 0.02) * T(0.99 - X, 0.005)) * (1 - T(0.035 - X, 0.01)) * (1 - T(0.03 - Y, 0.01)) * (1 - T(Y - 0.97, 0.01))
+    edge = np.maximum(edge, T(X - xc - 0.03, 0.02) * T(0.99 - X, 0.005))
+    s = 0.05 * (1 - (1 - edge) * (1 - T(0.03 - X, 0.008)))
+    d = X - xc  # inland distance: a low coastal plain (floods visibly) rising into hills
+    hills = 0.1 + 13 * np.maximum(d, 0) + 70 * np.maximum(1 - np.exp(-(d - 0.06) / 0.08), 0) * (0.65 + 0.35 * np.sin(2 * np.pi * 3 * Y) * np.cos(2 * np.pi * 7 * X))
+    landv = (X > xc) & (X < 0.93)
+    b_vis = np.where(landv, hills, -depth)
+    b_vis = np.where(island > 0.45, 30 * (island - 0.45) / 0.55 + 0.5, b_vis)
+    return -depth, s, b_vis, landv | (island > 0.45)
+
+
+def swe_ic(spec):
+    b, s, b_vis, _ = coast(spec)
+    X, Y = (np.asarray(a) / spec["L"] for a in pde.grid(spec))
+    # thrust-fault source offshore: elongated uplift with a subsidence lobe landward of it (leading depression)
+    rot = lambda x, y, t: (x * np.cos(t) + y * np.sin(t), -x * np.sin(t) + y * np.cos(t))
+    a, c = rot(X - 0.2, Y - 0.42, 0.25)
+    eta = 2.0 * np.exp(-(a / 0.05) ** 2 - (c / 0.3) ** 2) - 1.0 * np.exp(-((a - 0.09) / 0.05) ** 2 - (c / 0.3) ** 2)
+    z = np.zeros_like(eta)
+    return np.stack([eta, z, z, b, s]), b_vis
+
 
 # Aliev-Panfilov (dimensionless; 1 time unit ~ 12.9 ms), standard k, a, mu1, mu2 with two changes for 128^2:
 # eps0 0.002 -> 0.01 (faster recovery, so a re-entrant wavelength fits the box instead of the wave dying on its own
@@ -40,18 +76,6 @@ AP = {
         "v": "0.05*lap(v) + (0.01 + 0.2*v/(u + 0.3))*(-v - 8*u*(u - 0.15 - 1))",
     },
 }
-
-
-def swe_ic(spec):
-    X, Y = (np.asarray(a) for a in pde.grid(spec))
-    L = spec["L"]
-    xs = X / L
-    # deep ocean (58 m) shoaling onto a 6 m shelf band, with an island; periodic in x and y
-    shelf = 0.5 * (np.tanh((xs - 0.62) / 0.04) - np.tanh((xs - 0.95) / 0.04))
-    b = -58 + 52 * shelf + 40 * np.exp(-((xs - 0.35) ** 2 + (Y / L - 0.7) ** 2) / 0.003)
-    eta = 2.0 * np.exp(-((xs - 0.15) ** 2 + (Y / L - 0.35) ** 2) / 0.004)  # 2 m hump offshore
-    z = np.zeros_like(eta)
-    return np.stack([eta, z, z, b]), b
 
 
 def ap_ic(spec):
@@ -72,16 +96,16 @@ def main():
     out = a.out or os.path.join(os.path.dirname(os.path.abspath(__file__)), "demos", a.which)
     os.makedirs(out, exist_ok=True)
     if a.which == "swe":
-        u0, b = swe_ic(spec)
+        u0, b = swe_ic(spec)  # b = visual bed for the viewer
     else:
         u0 = ap_ic(spec)
     traj = np.asarray(pde.simulate(spec, jnp.asarray(u0, jnp.float32)[None]))[0]  # (T, C, N, N)
     assert np.isfinite(traj).all(), "blew up"
     frame_dt = spec["dt"] * spec["substeps"]
     if a.which == "swe":
-        np.save(f"{out}/h.npy", np.maximum(traj[:, 0] - b, 0).astype(np.float32))
+        np.save(f"{out}/h.npy", np.maximum(traj[:, 0] - b, 0).astype(np.float32))  # dry on (visual) land
         np.save(f"{out}/b.npy", b.astype(np.float32))
-        meta = {"dt": frame_dt, "time_unit": "s", "lx": spec["L"], "ly": spec["L"], "title": "Shallow water (solver)", "vexag": 4, "wexag": 6}
+        meta = {"dt": frame_dt, "time_unit": "s", "lx": spec["L"], "ly": spec["L"], "title": "Coastal tsunami (solver)", "vexag": 4, "wexag": 6}
     else:
         np.save(f"{out}/u.npy", traj[:, 0].astype(np.float32))
         meta = {"dt": frame_dt * 12.9, "time_unit": "ms", "geometry": "sheet", "range": [0, 1], "title": "Aliev-Panfilov (solver)"}

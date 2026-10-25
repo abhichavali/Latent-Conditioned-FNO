@@ -1,3 +1,4 @@
 data_collection/data/
 data_collection/demos/
 __pycache__/
+baseline_FNO/results/viz/
