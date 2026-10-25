@@ -98,13 +98,15 @@ On fixed val-IC batches (held-out ICs of training equations) and rehearsal batch
 | swe | eta, u, v / b, s (fixed demo coast) | 4 km | 10 s (0.25 s x 40) | 140 s | 2 fault sources: on, x in [0.08, 0.36], y in [0.2, 0.8], angle, amp, width, length, subsidence lobe (on, side, offset, amp) |
 | ap | u, v / D (scar, per IC) | 64 | 2.5 (0.02 x 125) | 35 | 2 broken fronts (on, x, y, angle, width, half length, wake, v amp), 2 stimuli (on, x, y, radius), scar (x, y, radius, D_min in [0.02, 0.05]) |
 
-**SWE is in km and s** (`targets.SWE_KM`): demos.SWE's L = 4000 m sits far outside pretraining's L (5–200; log L 8.3
-vs 1.6–5.3) and the model conditions on log L.  Physically identical: L = 4, g = 9.81e-3 km/s², viscosity 8e-6 km²/s;
-eta, u, v and b are metre values / `targets.KM`, sponge s (1/s) and time unchanged, knob params stay in metres.  The
-km solver reproduces the metre solver / 1000 to 3e-6 (`targets.check_swe_km`, run by `python targets.py`).  **A viz
-exporter must multiply eta, u, v, b by `targets.KM`** to get metres back.  `/workspace/targets/swe_m` is the same test
-set in metres (diagnostic: `adapter.normalize`'s absolute floors, IC std >= 1e-3 and 1.0 for an all-zero IC, are
-unit-dependent, so in km the eta IC std 1.4e-4 is floored and u, v start at 0 with scale 1).
+**SWE is in mixed units** (`targets.SWE_MIX`): horizontal length in km, time in ks, eta and b in m, u and v in
+km/ks (= m/s, numerically unchanged), sponge s in 1/ks.  In SI demos.SWE has L = 4000 (log L 8.3 vs pretraining's
+1.6–5.3); pure km pushed the eta IC std (1.4e-4 km) under `adapter.normalize`'s absolute floor 1e-3 and made u, v
+~1e-4 at the fallback scale 1 (zero-shot eta relL2 3.3 vs 1.3 in SI).  Mixed: L = 4, T = 0.14 (log T -2.0, inside
+A's -4.0..4.8), g' = 9.81, viscosity 8e-3, s' = 1000 s; the fields match the SI solver to 6e-7
+(`targets.check_swe_mix`, run by `python targets.py`).  **Viz**: fields are already in m and m/s; only lx = L * KM
+(m) and dt = frame_dt * KS (s) convert.  `/workspace/targets/swe_m` is the same test set in SI (diagnostic).
+No pretraining equation has a second static, so the lift weights of static slot 1 (SWE's sponge) are untrained:
+`eval.adapt_statics` copies slot 0's into it for SWE (zero-shot, particles and stage B alike).
 
 `targets.sample(name, n, rng)` -> (params, ics, statics); `targets.features(name, params)` -> knob features in [0, 1]
 for k-means; `targets.simulate(name, ics, statics)` -> trajectories; `targets.canonical_graph(name)`. Load a test set
@@ -114,7 +116,7 @@ with `data.adapter.Eq("SWE", "/workspace/targets/swe")` like any training equati
 
 ```sh
 python eval.py --run /workspace/runs/pretrain_A [--ckpt .../step_X.eqx]       # -> /workspace/results/<run>_s<step>/results.json, zero_shot.png
-python active.py run --run RUN --ckpt CK --target swe|ap|swe_m|reh:A/eq_0123 --method active|random|generic
+python active.py run --run RUN --ckpt CK --target swe|ap|swe_m|reh:A/eq_0123 --method active|random|generic   # + stage B
 python active.py summary --results /workspace/results/<run>_s<step>        # headline_raw_slot0.png, sims_to_target_raw_slot0.json
 ```
 

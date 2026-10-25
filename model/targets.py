@@ -1,8 +1,8 @@
 """The two targets (never seen in pretraining), in the pretraining conventions: pde.rollout, periodic, 128^2, 15 frames.
 
   swe  coastal tsunami of data_collection/demos.py: fields eta, u, v; statics b (bathymetry), s (sponge rate).
-       frame_dt 10 s (dt 0.25 s x 40 substeps), T = 140 s, L = 4 km.  Statics are the fixed demo coast.
-       In km and s (see SWE_KM): eta, u, v, b are metre values / KM; the viz exporter multiplies them by KM.
+       frame_dt 10 s (dt 0.25 s x 40 substeps), T = 140 s, L = 4000 m.  Statics are the fixed demo coast.
+       In mixed units (see SWE_MIX): x in km, t in ks, eta / b in m, u / v in km/ks = m/s, sponge s in 1/ks.
   ap   Aliev-Panfilov with a scar: diffusion dx(D dx u) + dy(D dy u), D = 1 except a smooth low-conductivity patch;
        otherwise demos.AP (k 8, a 0.15, eps0 0.01, mu1 0.2, mu2 0.3, 0.05 lap v).  frame_dt 2.5 (dt 0.02 x 125),
        T = 35, L = 64.  D is resampled per IC (its knobs are part of the parameter vector).
@@ -30,16 +30,20 @@ import pde  # noqa: E402
 
 from data import canon  # noqa: E402
 
-# SWE in km and s: demos.SWE's L = 4000 m is far outside pretraining's L (5-200, log L 1.6-5.3 vs 8.3) and the model
-# conditions on log L.  Physically identical: L 4 km, g 9.81e-3 km/s^2, viscosity 8 m^2/s = 8e-6 km^2/s; eta, u, v and
-# b are metre values / KM, the sponge s (1/s) and time are unchanged.  Knob params stay in metres (source amp).
-KM = 1000.0  # metres per SWE length unit
-SWE_KM = {**demos.SWE, "L": demos.SWE["L"] / KM, "rhs": {
-    "eta": "-dx((eta - b)*u) - dy((eta - b)*v) + 8e-6*lap(eta) - s*eta",
-    "u": "-u*dx(u) - v*dy(u) - 0.00981*dx(eta) + 8e-6*lap(u) - s*u",
-    "v": "-u*dx(v) - v*dy(v) - 0.00981*dy(eta) + 8e-6*lap(v) - s*v"}}
+# SWE in mixed units: horizontal length in km, time in ks, vertical length (eta, b) in m.  demos.SWE in SI has L = 4000
+# (log L 8.3 vs pretraining's 1.6-5.3), and pure km would push the eta IC std (1.4e-4 km) under adapter.normalize's
+# absolute floor 1e-3.  With x = KM x', t = KS t', u' = u KS / KM (km/ks = m/s, so numerically u' = u):
+#   d_t' eta = -d_x'((eta - b) u') - ... + nu KS / KM^2 lap' eta - s KS eta            nu' = 8 * 1e3 / 1e6 = 8e-3
+#   d_t' u'  = -u' d_x' u' - ... - g KS^2 / KM^2 d_x' eta + nu' lap' u' - s KS u'     g' = 9.81, s' = s * 1e3 (1/ks)
+# so L = 4, dt = 2.5e-4 (frame_dt 0.01, T = 0.14: log T -2.0 inside pretraining's -4.0..4.8, log L 1.39), fields
+# numerically identical to the SI solver; only the sponge static is scaled (x KS).  Viz: lx = L * KM m, dt = frame_dt * KS s.
+KM, KS = 1000.0, 1000.0  # metres per horizontal length unit, seconds per time unit
+SWE_MIX = {**demos.SWE, "L": demos.SWE["L"] / KM, "dt": demos.SWE["dt"] / KS, "rhs": {
+    "eta": "-dx((eta - b)*u) - dy((eta - b)*v) + 0.008*lap(eta) - s*eta",
+    "u": "-u*dx(u) - v*dy(u) - 9.81*dx(eta) + 0.008*lap(u) - s*u",
+    "v": "-u*dx(v) - v*dy(v) - 9.81*dy(eta) + 0.008*lap(v) - s*v"}}
 SPECS = {
-    "swe": {**SWE_KM, "frames": 15, "substeps": 40},
+    "swe": {**SWE_MIX, "frames": 15, "substeps": 40},
     "ap": {"fields": ["u", "v"], "static": ["D"], "L": 64.0, "N": 128, "order": 2, "dt": 0.02, "substeps": 125,
            "frames": 15, "rhs": {"u": "dx(D*dx(u)) + dy(D*dy(u)) + 8*u*(1 - u)*(u - 0.15) - u*v",
                                  "v": demos.AP["rhs"]["v"]}},
@@ -154,9 +158,9 @@ def make_ics(name, params):
     X, Y = _grid(N)
     if name == "swe":
         if "bs" not in _COAST:
-            b, s, _, _ = demos.coast(SPECS["swe"])  # unit-square geometry, b in metres
-            _COAST["bs"] = np.stack([b / KM, s]).astype(np.float32)
-        ics = (np.stack([_swe_ic(p, X, Y) for p in params]) / KM).astype(np.float32)
+            b, s, _, _ = demos.coast(SPECS["swe"])  # unit-square geometry, b in metres, s in 1/s
+            _COAST["bs"] = np.stack([b, s * KS]).astype(np.float32)
+        ics = np.stack([_swe_ic(p, X, Y) for p in params]).astype(np.float32)
         return ics, np.broadcast_to(_COAST["bs"], (len(params), *_COAST["bs"].shape)).copy()
     out = [_ap_ic(p, X, Y) for p in params]
     return np.stack([o[0] for o in out]).astype(np.float32), np.stack([o[1] for o in out]).astype(np.float32)
@@ -179,16 +183,17 @@ def simulate(name, ics, statics, batch=25):
     return np.concatenate(out)
 
 
-def check_swe_km(n=3):
-    """The km spec reproduces the metre spec (demos.SWE) / KM on n ICs; returns the max relative deviation."""
+def check_swe_mix(n=3):
+    """The mixed-unit spec reproduces the SI spec (demos.SWE) on n ICs; returns the max relative deviation of the fields
+    (identical numerically: eta in m, u = m/s = km/ks)."""
     import jax.numpy as jnp
 
     _, ic, st = sample("swe", n, np.random.default_rng(1))
     m = {**demos.SWE, "frames": 15, "substeps": 40}
-    u0 = np.concatenate([ic * KM, st[:, :1] * KM, st[:, 1:]], 1)  # sponge rate is unit-free in length
-    ref = np.asarray(pde.rollout(pde.solver_key(m), jnp.asarray(u0), m["dt"], m["substeps"], m["frames"]))[:, :, :3] / KM
-    km = simulate("swe", ic, st)
-    return float(np.abs(km - ref).max() / np.abs(ref).max())
+    u0 = np.concatenate([ic, st[:, :1], st[:, 1:] / KS], 1)  # sponge 1/ks -> 1/s
+    ref = np.asarray(pde.rollout(pde.solver_key(m), jnp.asarray(u0), m["dt"], m["substeps"], m["frames"]))[:, :, :3]
+    mix = simulate("swe", ic, st)
+    return float(np.abs(mix - ref).max() / np.abs(ref).max())
 
 
 def write_test(name, out, n=100, seed=2026):
@@ -210,7 +215,7 @@ def write_test(name, out, n=100, seed=2026):
     np.save(f"{out}/static.npy", S.astype(np.float16))
     np.save(f"{out}/params.npy", P)
     T = (s["frames"] - 1) * s["frame_dt"]
-    act = float((np.abs(U[:, -1, 0]).max((-2, -1)) > (0.5 if name == "ap" else 0.05 / KM)).mean())  # 5 cm wave
+    act = float((np.abs(U[:, -1, 0]).max((-2, -1)) > (0.5 if name == "ap" else 0.05)).mean())  # 5 cm wave
     g = canonical_graph(name)
     meta = {**s, "id": name.upper(), "family": f"target/{name}", "T": T, "latex": pde.latex(s), "graph": pde.graph(s),
             "canonical": {"text": g["text"], "terms": g["terms"]}, "norm": {"shift": shift.tolist(), "scale": scale.tolist()},
@@ -230,9 +235,9 @@ if __name__ == "__main__":
     ap.add_argument("--only", nargs="+", default=list(SPECS))
     a = ap.parse_args()
     if "swe" in a.only:
-        dev = check_swe_km()
-        print(f"swe km vs metre solver: max deviation {dev:.2e} of max |field|", flush=True)
-        assert dev < 1e-3, dev
+        dev = check_swe_mix()
+        print(f"swe mixed units vs SI solver: max deviation {dev:.2e} of max |field|", flush=True)
+        assert dev < 1e-4, dev
     for nm in a.only:
         p, ic, st = sample(nm, 4, np.random.default_rng(0))  # self-check: shapes and knob features
         assert ic.shape == (4, len(SPECS[nm]["fields"]), 128, 128) and st.shape[:2] == (4, len(SPECS[nm]["static"]))

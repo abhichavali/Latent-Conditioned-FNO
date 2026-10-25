@@ -35,7 +35,8 @@ import optax  # noqa: E402
 
 import train  # noqa: E402
 from data import adapter, canon  # noqa: E402
-from data.canon import F_MAX  # noqa: E402
+from data.canon import F_MAX, S_MAX  # noqa: E402
+from models.fno import C_IN  # noqa: E402
 
 TARGETS = "/workspace/targets"
 KEYS = ("u0", "st", "pres", "aux", "logT", "logL")
@@ -46,9 +47,13 @@ def brief(r, keys=("raw_slot0", "raw_all", "rel_all")):
     return {m: [round(v[k], 4) for k in keys] for m, v in r.items() if isinstance(v, dict)}
 
 
-def load(run, ckpt=None):
-    """Run dir -> cfg, splits, (fno, encoder, latent table), checkpoint path."""
+def load(run, ckpt=None, data_dir="/workspace/data"):
+    """Run dir -> cfg, splits, (fno, encoder, latent table), checkpoint path.  Data roots missing on this box are
+    remapped to data_dir/<tag> (the A run was trained on another box)."""
     cfg = yaml.safe_load(open(f"{run}/config.yaml"))
+    for r in cfg["data"]["roots"]:
+        if not os.path.isdir(r["path"]):
+            r["path"] = f"{data_dir}/{r['tag']}"
     S = json.load(open(f"{run}/splits.json"))
     params = train.build(cfg, len(S["train"]), jax.random.PRNGKey(0))
     opt = train.optimizer(cfg, params)
@@ -56,6 +61,25 @@ def load(run, ckpt=None):
     assert path, f"no checkpoint in {run}"
     params, _ = eqx.tree_deserialise_leaves(path, (params, opt.init(eqx.filter(params, eqx.is_array))))
     return cfg, S, params, path
+
+
+def static_channels(k):
+    """Lift input channels of static slot k (models/fno.py input order: fields, statics, presence (fields, statics),
+    chi, x, y, aux (tanh m/s, log10 s per field slot, log10 rms per static slot)): map, presence flag, log-rms aux."""
+    aux0 = F_MAX + S_MAX + (F_MAX + S_MAX) + 1 + 2
+    assert aux0 + 2 * F_MAX + S_MAX == C_IN
+    return [F_MAX + k, F_MAX + S_MAX + F_MAX + k, aux0 + 2 * F_MAX + k]
+
+
+def adapt_statics(fno, ns, mode="copy"):
+    """No pretraining equation has a second static, so the lift weights of static slot 1 are untrained (random init),
+    yet a target with two statics (SWE: b, sponge s) feeds them.  "copy": slot 0's weights (map, presence, aux) into
+    slot 1 (the default for SWE everywhere: zero-shot, particles, stage B init); "zero": ignore slot 1; "raw": as is."""
+    if ns < 2 or mode == "raw":
+        return fno
+    W = fno.lift.weight
+    W = W.at[:, static_channels(1)].set(W[:, static_channels(0)] if mode == "copy" else 0.0)
+    return eqx.tree_at(lambda m: m.lift.weight, fno, W)
 
 
 def encode(enc, graphs):
@@ -223,13 +247,15 @@ def pick(e, windows, k, rng):
 # ---------------------------------------------------------------- latent fitting (shared with active.py)
 def make_fitter(fno, lr=0.05, cap=4.0):
     """Adam on whitened particles eps (K, dz), z = mu + L eps:
-        loss_k = w_data * mean over M (sim, frame) pairs of relL2 (normalized space, as in training) + w_prior * |eps_k|^2
-    data on device: u0 st pres aux logT logL (n, ...), y (n, Q, F, N, N) normalized, t (Q,).  Each particle draws its
-    own M pairs per step."""
+        loss_k = w_data * mean over M (sim, frame) pairs of relL2 (normalized space, as in training)
+                 + w_prior * |eps_k - anchor_k|^2
+    anchor = each particle's own prior draw (randomized MAP: keeps the ensemble spread; anchoring all at 0 = mu
+    collapses it onto one MAP point).  data on device: u0 st pres aux logT logL (n, ...), y (n, Q, F, N, N)
+    normalized, t (Q,).  Each particle draws its own M pairs per step."""
     adam = optax.adam(lr)
 
     @eqx.filter_jit
-    def step(eps, ost, data, si, qi, mu, L, w_data, w_prior):
+    def step(eps, ost, data, si, qi, mu, L, anchor, w_data, w_prior):
         def loss(eps):
             z = mu + eps @ L.T
 
@@ -241,22 +267,24 @@ def make_fitter(fno, lr=0.05, cap=4.0):
                 return rel
 
             d = jax.vmap(one)(z, si, qi)
-            return (w_data * d + w_prior * (eps**2).sum(-1)).sum(), d
+            return (w_data * d + w_prior * ((eps - anchor) ** 2).sum(-1)).sum(), d
 
         (_, d), g = jax.value_and_grad(loss, has_aux=True)(eps)
         upd, ost = adam.update(g, ost)
         return eps + upd, ost, d
 
-    def fit(eps, prior, data, steps, M, rng, w_data, w_prior=1.0):
+    def fit(eps, prior, data, steps, M, rng, w_data, w_prior=1.0, anchor=None):
         """data = fit_data(...) -> fitted eps (K, dz), last per-particle data relL2 (K,)."""
         data, n = data
+        anchor = jnp.zeros_like(jnp.asarray(eps)) if anchor is None else jnp.asarray(anchor)
         eps = jnp.asarray(eps)
         ost = adam.init(eps)
         Q = data["y"].shape[1]
         mu, L = jnp.asarray(prior["mu"]), jnp.asarray(prior["L"])
         for _ in range(steps):
             si, qi = rng.integers(0, n, (len(eps), M)), rng.integers(0, Q, (len(eps), M))
-            eps, ost, d = step(eps, ost, data, jnp.asarray(si), jnp.asarray(qi), mu, L, jnp.float32(w_data), jnp.float32(w_prior))
+            eps, ost, d = step(eps, ost, data, jnp.asarray(si), jnp.asarray(qi), mu, L, anchor, jnp.float32(w_data),
+                               jnp.float32(w_prior))
         return np.asarray(eps), np.asarray(d)
 
     return fit
@@ -283,7 +311,7 @@ def main():
     ap.add_argument("--K", type=int, default=32)
     ap.add_argument("--val_per_eq", type=int, default=2)
     ap.add_argument("--reh_per_eq", type=int, default=8)
-    ap.add_argument("--targets", nargs="+", default=["swe", "ap", "swe_m"])
+    ap.add_argument("--targets", nargs="*", default=["swe", "ap", "swe_m"])
     ap.add_argument("--calib_steps", type=int, default=300)
     ap.add_argument("--skip", nargs="*", default=[], help="sections to skip: data calib")
     a = ap.parse_args()
@@ -292,6 +320,8 @@ def main():
     out = a.out or f"/workspace/results/{os.path.basename(a.run.rstrip('/'))}_s{step}"
     os.makedirs(out, exist_ok=True)
     R = {"run": a.run, "ckpt": path, "step": step, "K": a.K, "metric": __doc__.split("Metric: ")[1].split("Saved")[0].strip()}
+    if os.path.exists(f"{out}/results.json"):  # sections run again replace their entries, the rest is kept
+        R = {**json.load(open(f"{out}/results.json")), **R}
     save = lambda: json.dump(R, open(f"{out}/results.json", "w"), indent=1)
     log = lambda *x: print(f"[{time.strftime('%H:%M:%S')}]", *x, flush=True)
     log(f"loaded {path} (step {step}), {len(S['train'])} train latents")
@@ -306,14 +336,19 @@ def main():
         s, g = target_set(name)
         gp = graph_prior(enc, g)
         n = len(s.items)
+        ns = s.items[0][0].ns
+        fno_t = adapt_statics(fno, ns)
         modes = {"graph_mu": np.broadcast_to(gp["mu"], (1, n, len(gp["mu"]))),
                  "generic_mu": np.broadcast_to(gen["mu"], (1, n, len(gen["mu"]))),
                  f"graph_K{a.K}": np.broadcast_to(draw(gp, eps)[:, None], (a.K, n, Zn.shape[1])),
                  f"generic_K{a.K}": np.broadcast_to(draw(gen, eps)[:, None], (a.K, n, Zn.shape[1])),
                  "persistence": "persistence"}
         t0 = time.time()
-        R[f"target/{name}"] = evaluate(fno, s, modes)
+        R[f"target/{name}"] = evaluate(fno_t, s, modes)
         R[f"target/{name}"]["prior_sigma_mean"] = float(np.diag(gp["L"]).mean())
+        if ns >= 2:  # the untrained static slot 1: as trained (random) / ignored / copied from slot 0 (default above)
+            R[f"target/{name}"]["static_slot1_graph_mu"] = {m: evaluate(adapt_statics(fno, ns, m), s, {"graph_mu": modes["graph_mu"]})["graph_mu"]
+                                                            for m in ("raw", "zero")}
         log(name, f"{time.time() - t0:.0f}s", brief(R[f"target/{name}"]))
         save()
 
