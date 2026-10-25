@@ -42,7 +42,7 @@ encoder:
   logsig: [-4.0, 0.5]
 train:
   seed: 0
-  steps: 120000                           # launch passes the measured --steps
+  steps: 155000                           # 5.3 steps/s measured (width 96, 6 layers, remat) -> ~8.4 h
   lr: 5.0e-4
   lr_end: 0.05
   warmup: 1000
@@ -50,8 +50,8 @@ train:
   clip: 1.0
   rel_cap: 4.0
   beta: 1.0e-3                            # KL(q(z|G,C u T) || q(z|G,C)) weight (nats summed over dz)
-  beta_warm: 0.005                        # beta = 0 for this fraction of steps, then linear ramp
-  beta_ramp: 0.05
+  beta_warm: 0.03                         # beta = 0 for this fraction of steps (the decoder learns to use z), then linear ramp
+  beta_ramp: 0.10
   log_every: 100
   val_minutes: 20
   val_batches: 12
