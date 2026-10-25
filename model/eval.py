@@ -88,9 +88,10 @@ def encode(enc, graphs):
     return np.asarray(mu), np.exp(np.asarray(ls))
 
 
-def graph_prior(enc, g):
+def graph_prior(enc, g, tau=1.0):
+    """p_phi(z | G) = N(mu, diag (tau sigma)^2); tau = the rehearsal calibration temperature (1 = as trained)."""
     mu, sd = encode(enc, [g])
-    return {"mu": mu[0], "L": np.diag(sd[0])}
+    return {"mu": mu[0], "L": np.diag(tau * sd[0])}
 
 
 def generic_prior(Z):
@@ -314,6 +315,8 @@ def main():
     ap.add_argument("--reh_per_eq", type=int, default=8)
     ap.add_argument("--targets", nargs="*", default=["swe", "ap", "swe_m"])
     ap.add_argument("--calib_steps", type=int, default=300)
+    ap.add_argument("--calib_eqs", type=int, default=0, help="calibrate on this many rehearsal equations (seeded; 0 = all)")
+    ap.add_argument("--tau", type=float, default=0.0, help="also evaluate the graph prior with sigma -> tau sigma")
     ap.add_argument("--skip", nargs="*", default=[], help="sections to skip: data (all below) valic rehearsal calib")
     a = ap.parse_args()
     cfg, S, (fno, enc, Z), path = load(a.run, a.ckpt)
@@ -344,6 +347,8 @@ def main():
                  f"graph_K{a.K}": np.broadcast_to(draw(gp, eps)[:, None], (a.K, n, Zn.shape[1])),
                  f"generic_K{a.K}": np.broadcast_to(draw(gen, eps)[:, None], (a.K, n, Zn.shape[1])),
                  "persistence": "persistence"}
+        if a.tau:
+            modes[f"graph_tau_K{a.K}"] = np.broadcast_to(draw(graph_prior(enc, g, a.tau), eps)[:, None], (a.K, n, Zn.shape[1]))
         t0 = time.time()
         R[f"target/{name}"] = evaluate(fno_t, s, modes)
         R[f"target/{name}"]["prior_sigma_mean"] = float(np.diag(gp["L"]).mean())
@@ -401,6 +406,9 @@ def main():
         modes = {"graph_mu": mu_r[j_of][None], "generic_mu": np.broadcast_to(gen["mu"], (1, n, Zn.shape[1])),
                  f"graph_K{a.K}": np.moveaxis(zg[j_of], 1, 0),
                  f"generic_K{a.K}": np.broadcast_to(draw(gen, eps)[:, None], (a.K, n, Zn.shape[1])), "persistence": "persistence"}
+        if a.tau:
+            zt = np.stack([draw({"mu": mu_r[j], "L": np.diag(a.tau * sd_r[j])}, eps) for j in range(len(reh))])
+            modes[f"graph_tau_K{a.K}"] = np.moveaxis(zt[j_of], 1, 0)
         t0 = time.time()
         R["rehearsal"] = evaluate(fno, rs, modes)
         R["rehearsal"]["equations"] = len(reh)
@@ -411,7 +419,9 @@ def main():
     if "calib" not in a.skip:
         fit = make_fitter(fno)
         t0, res, fit_err = time.time(), [], []
-        for j, g in enumerate(reh):
+        sel = sorted(np.random.default_rng(2).choice(len(reh), a.calib_eqs, replace=False)) if 0 < a.calib_eqs < len(reh) else range(len(reh))
+        for j in sel:
+            g = reh[j]
             e = eqs[g]
             ws = list(e.windows)
             traj = np.stack([e.frames_raw(w, np.arange(e.frames)) for w in ws])
@@ -423,7 +433,7 @@ def main():
             fit_err.append(float(dl[0]))
         r = np.abs(np.stack(res))  # whitened residuals (z* - mu) / sigma
         tau = float(np.sqrt((r**2).mean()))
-        R["calibration"] = {"equations": len(reh), "steps": a.calib_steps, "inside_1sigma": float((r < 1).mean()),
+        R["calibration"] = {"equations": len(res), "steps": a.calib_steps, "inside_1sigma": float((r < 1).mean()),
                             "inside_2sigma": float((r < 2).mean()), "expected": [0.683, 0.954], "tau": tau,
                             "inside_1tau_sigma": float((r < tau).mean()), "inside_2tau_sigma": float((r < 2 * tau).mean()),
                             "median_abs_residual": float(np.median(r)), "fit_relL2_last_batch": float(np.mean(fit_err)),

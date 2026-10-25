@@ -236,7 +236,7 @@ def run(a):
     os.makedirs(out, exist_ok=True)
     log = lambda *x: print(f"[{time.strftime('%H:%M:%S')}]", *x, flush=True)
     p = problem(a.target, cfg, S, np.random.default_rng(a.seed + 100))
-    prior = ev.generic_prior(Z) if a.method == "generic" else ev.graph_prior(enc, p.graph)
+    prior = ev.generic_prior(Z) if a.method == "generic" else ev.graph_prior(enc, p.graph, a.prior_tau)
     fno = ev.adapt_statics(fno, p.test.items[0][0].ns)  # SWE: static slot 1 (sponge) gets slot 0's lift weights
     fit = ev.make_fitter(fno, lr=a.lr)
     if a.ft_steps and a.stage == "b":  # stage B branch: same acquired sims, fine-tuned copy of theta (acquisition stays z-only)
@@ -485,6 +485,7 @@ def main():
     ap.add_argument("--c_patience", type=int, default=4, help="stage C: validations (every 100 steps) without improvement")
     ap.add_argument("--c_lr_end", type=float, default=1.0, help="stage C: cosine decay to lr * this within each round (1 = constant)")
     ap.add_argument("--tag", default="", help="replay: suffix of the output file")
+    ap.add_argument("--prior_tau", type=float, default=1.0, help="graph prior sigma -> tau sigma (eval.py calibration)")
     ap.add_argument("--keep_ft", action=argparse.BooleanOptionalAction, default=True, help="keep ft.eqx after the run")
     ap.add_argument("--run", default="/workspace/runs/pretrain_A")
     ap.add_argument("--ckpt")
