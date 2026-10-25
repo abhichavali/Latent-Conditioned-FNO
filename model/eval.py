@@ -457,6 +457,8 @@ def plot(R, out):
     groups = [([k for k in ("val_ic", "rehearsal") if k in R], "rel_all", "relL2 (training metric), all fields"),
               ([k for k in R if k.startswith("target/")], "raw_slot0", "relL2 per frame, primary field (physical)")]
     groups = [g for g in groups if g[0]]
+    if not groups:
+        return
     fig, axes = plt.subplots(1, len(groups), figsize=(9, 3.6), squeeze=False)
     w = 0.8 / len(modes)
     for ax, (sets, key, ylab) in zip(axes[0], groups):
