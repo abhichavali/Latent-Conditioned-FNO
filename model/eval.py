@@ -313,7 +313,7 @@ def main():
     ap.add_argument("--reh_per_eq", type=int, default=8)
     ap.add_argument("--targets", nargs="*", default=["swe", "ap", "swe_m"])
     ap.add_argument("--calib_steps", type=int, default=300)
-    ap.add_argument("--skip", nargs="*", default=[], help="sections to skip: data calib")
+    ap.add_argument("--skip", nargs="*", default=[], help="sections to skip: data (all below) valic rehearsal calib")
     a = ap.parse_args()
     cfg, S, (fno, enc, Z), path = load(a.run, a.ckpt)
     step = int(os.path.basename(path)[5:13])
@@ -361,47 +361,50 @@ def main():
         return
     eqs = {e.gid: e for e in adapter.load_equations(cfg["data"]["roots"])}
     adapter.drop_nonfinite(list(eqs.values()), f"{cfg['cache_dir']}/nonfinite_{'+'.join(r['tag'] for r in cfg['data']['roots'])}.json")
-    rng = np.random.default_rng(0)
     row = {g: i for i, g in enumerate(S["train"])}
     tags = "+".join(r["tag"] for r in cfg["data"]["roots"])
     graphs = canon.cached_graphs([(g, eqs[g].spec) for g in S["train"] + S["rehearsal"]], f"{cfg['cache_dir']}/graphs_{tags}.pkl")
 
     # 1 + 2: val-IC (collapse test, zero-shot reference)
-    items = [(eqs[g], w, row[g]) for g in S["train"] for w in pick(eqs[g], S["val_ic"].get(g, []), a.val_per_eq, rng)]
-    vs = Set(items)
-    eq_of = np.array([it[2] for it in items])
-    ue = np.unique(eq_of)
-    nxt = {u: ue[(k + 1) % len(ue)] for k, u in enumerate(ue)}  # swap: the latent of the next equation
-    mu_tr, _ = encode(enc, [graphs[S["train"][r]] for r in ue])
-    mu_of = {u: mu_tr[k] for k, u in enumerate(ue)}
-    modes = {"z_table": Zn[eq_of][None], "swap": Zn[[nxt[u] for u in eq_of]][None],
-             "graph_mu": np.stack([mu_of[u] for u in eq_of])[None], "generic_mu": np.broadcast_to(gen["mu"], (1, len(items), Zn.shape[1])),
-             "persistence": "persistence"}
-    t0 = time.time()
-    R["val_ic"] = evaluate(fno, vs, modes)
-    for k in ("raw_slot0", "raw_all", "rel_all", "traj_all"):
-        R["val_ic"][f"swap_ratio_{k}"] = R["val_ic"]["swap"][k] / R["val_ic"]["z_table"][k]
-    R["val_ic"]["equations"] = len(ue)
-    log("val_ic", f"{time.time() - t0:.0f}s", brief(R["val_ic"]),
-        "swap ratio (rel_all)", round(R["val_ic"]["swap_ratio_rel_all"], 3))
-    save()
+    if "valic" not in a.skip:
+        rng = np.random.default_rng(0)
+        items = [(eqs[g], w, row[g]) for g in S["train"] for w in pick(eqs[g], S["val_ic"].get(g, []), a.val_per_eq, rng)]
+        vs = Set(items)
+        eq_of = np.array([it[2] for it in items])
+        ue = np.unique(eq_of)
+        nxt = {u: ue[(k + 1) % len(ue)] for k, u in enumerate(ue)}  # swap: the latent of the next equation
+        mu_tr, _ = encode(enc, [graphs[S["train"][r]] for r in ue])
+        mu_of = {u: mu_tr[k] for k, u in enumerate(ue)}
+        modes = {"z_table": Zn[eq_of][None], "swap": Zn[[nxt[u] for u in eq_of]][None],
+                 "graph_mu": np.stack([mu_of[u] for u in eq_of])[None],
+                 "generic_mu": np.broadcast_to(gen["mu"], (1, len(items), Zn.shape[1])), "persistence": "persistence"}
+        t0 = time.time()
+        R["val_ic"] = evaluate(fno, vs, modes)
+        for k in ("raw_slot0", "raw_all", "rel_all", "traj_all"):
+            R["val_ic"][f"swap_ratio_{k}"] = R["val_ic"]["swap"][k] / R["val_ic"]["z_table"][k]
+        R["val_ic"]["equations"] = len(ue)
+        log("val_ic", f"{time.time() - t0:.0f}s", brief(R["val_ic"]),
+            "swap ratio (rel_all)", round(R["val_ic"]["swap_ratio_rel_all"], 3))
+        save()
 
     # 2 + 3: rehearsal (held-out structures)
     reh = S["rehearsal"]
     mu_r, sd_r = encode(enc, [graphs[g] for g in reh])
-    items = [(eqs[g], w, j) for j, g in enumerate(reh) for w in pick(eqs[g], eqs[g].windows, a.reh_per_eq, rng)]
-    rs = Set(items)
-    j_of = np.array([it[2] for it in items])
-    n = len(items)
-    zg = np.stack([draw({"mu": mu_r[j], "L": np.diag(sd_r[j])}, eps) for j in range(len(reh))])  # (E, K, dz)
-    modes = {"graph_mu": mu_r[j_of][None], "generic_mu": np.broadcast_to(gen["mu"], (1, n, Zn.shape[1])),
-             f"graph_K{a.K}": np.moveaxis(zg[j_of], 1, 0), f"generic_K{a.K}": np.broadcast_to(draw(gen, eps)[:, None], (a.K, n, Zn.shape[1])),
-             "persistence": "persistence"}
-    t0 = time.time()
-    R["rehearsal"] = evaluate(fno, rs, modes)
-    R["rehearsal"]["equations"] = len(reh)
-    log("rehearsal", f"{time.time() - t0:.0f}s", brief(R["rehearsal"]))
-    save()
+    if "rehearsal" not in a.skip:
+        rng = np.random.default_rng(1)
+        items = [(eqs[g], w, j) for j, g in enumerate(reh) for w in pick(eqs[g], eqs[g].windows, a.reh_per_eq, rng)]
+        rs = Set(items)
+        j_of = np.array([it[2] for it in items])
+        n = len(items)
+        zg = np.stack([draw({"mu": mu_r[j], "L": np.diag(sd_r[j])}, eps) for j in range(len(reh))])  # (E, K, dz)
+        modes = {"graph_mu": mu_r[j_of][None], "generic_mu": np.broadcast_to(gen["mu"], (1, n, Zn.shape[1])),
+                 f"graph_K{a.K}": np.moveaxis(zg[j_of], 1, 0),
+                 f"generic_K{a.K}": np.broadcast_to(draw(gen, eps)[:, None], (a.K, n, Zn.shape[1])), "persistence": "persistence"}
+        t0 = time.time()
+        R["rehearsal"] = evaluate(fno, rs, modes)
+        R["rehearsal"]["equations"] = len(reh)
+        log("rehearsal", f"{time.time() - t0:.0f}s", brief(R["rehearsal"]))
+        save()
 
     # 4: calibration on rehearsal equations: z* fitted (no prior) to all windows, starting at mu
     if "calib" not in a.skip:
