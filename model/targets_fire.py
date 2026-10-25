@@ -12,9 +12,10 @@
       downwind, 3+ cells stop it;
     - the constant wind (0.4 toward +x, 30 deg) advects heat: faster downwind, slow backing fire upwind.
   Every term is in the pretraining library (cubic monomials in u, u f, linear operators).  L = 64 (dx 0.5, front
-  10-90% rise ~4-5 cells), dt 0.015 x 100 = frame_dt 1.5, T = 21 (log L 4.16, log T 3.04).  On 64 sampled ICs:
-  86% spread, 81% still burning at the last frame, median burned area 28% of the box, burned-area radius +2.3
-  cells per frame (downwind fronts ~4-5).
+  10-90% rise ~4-5 cells), dt 0.015 x 100 = frame_dt 1.5, T = 21 (log L 4.16, log T 3.04).  On 200 sampled ICs:
+  96% burn through the horizon (the rest are redrawn by targets.write_test), median burned area 33% of the box,
+  burned-area radius +2.6 cells per frame (downwind fronts ~4-5).  Scratch FNO raw_slot0: N 8 0.91, 64 0.59, 512 0.37
+  (persistence 1.00).
 
 Knobs: 2 ignitions (on, x, y, radius; the first always on, x upwind so the downwind run fits the box), the fuel map
 (mean, contrast = std, correlation length of a smooth random field; its noise seed is a hash of the knob vector, so
