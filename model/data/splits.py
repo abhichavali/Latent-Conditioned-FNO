@@ -9,7 +9,10 @@
   train      everything else.  The SWE / AP targets live outside the datasets and never enter training.
 
 With split.inherit = <earlier splits.json> (A u B warm-started from A): equations of the earlier split keep their
-assignment and val-IC windows, its structures are reused, and only new equations are assigned.
+assignment (train / rehearsal), its structures are reused, and only new equations are assigned.  Val-IC is
+inherited by window identity (pool IC, start frame), not by sample index, so it survives an in-place repair that
+reselects an equation's windows: held-out IC groups stay held out; an equation that had none (too few unique ICs)
+gets fresh val groups drawn only from ICs it was never trained on.
 """
 
 import json
@@ -67,6 +70,14 @@ def choose_structures(sets, frac, band, seed, max_size=3, min_train=10):
     return chosen
 
 
+def ids_of(S, eqs):
+    """Window identities [[ic, start_frame], ...] of a split's train / val windows (sample indices -> identities)."""
+    by = {e.gid: e for e in eqs}
+    conv = lambda g, ws: [list(by[g].ids[list(by[g].windows).index(w)]) for w in ws]
+    return {"train_ids": {g: conv(g, ws) for g, ws in S["train_windows"].items()},
+            "val_ids": {g: conv(g, ws) for g, ws in S["val_ic"].items()}}
+
+
 def make(eqs, cfg):
     """eqs [Eq] -> {"structures", "train", "rehearsal", "val_ic": {gid: [sample idx]}, "train_windows": {...}}."""
     prev = json.load(open(cfg["inherit"])) if cfg.get("inherit") else None
@@ -82,13 +93,15 @@ def make(eqs, cfg):
     for i, e in enumerate(eqs):
         if i in reh_set:
             continue
-        if e.gid in old_train:
-            out["train"].append(e.gid)
-            out["val_ic"][e.gid], out["train_windows"][e.gid] = prev["val_ic"][e.gid], prev["train_windows"][e.gid]
-            continue
         g = np.unique(e.groups)
         nv = int(round(cfg["val_ic_frac"] * len(g))) if len(g) >= cfg["val_ic_min_groups"] else 0
-        vg = set(r.choice(g, nv, replace=False).tolist()) if nv else set()
+        if e.gid in old_train:
+            assert "val_ids" in prev, "inherited splits need window ids: splits.ids_of (README)"
+            pv = {x[0] for x in prev["val_ids"][e.gid]}
+            fresh = sorted(set(g.tolist()) - {x[0] for x in prev["train_ids"][e.gid]})  # ICs never trained on
+            vg = pv & set(g.tolist()) if pv else set(r.choice(fresh, min(nv, len(fresh)), replace=False).tolist())
+        else:
+            vg = set(r.choice(g, nv, replace=False).tolist()) if nv else set()
         v = [int(w) for w, gg in zip(e.windows, e.groups) if gg in vg]
         out["train"].append(e.gid)
         out["val_ic"][e.gid] = v
@@ -98,6 +111,7 @@ def make(eqs, cfg):
                      "val_ic_windows": sum(map(len, out["val_ic"].values())),
                      "train_eqs_with_val_ic": sum(1 for v in out["val_ic"].values() if v),
                      "rehearsal_per_structure": [sum(1 for s in sets if set(c) <= s) for c in structs]}
+    out.update(ids_of(out, eqs))
     return out
 
 

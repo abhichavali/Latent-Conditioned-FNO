@@ -43,6 +43,7 @@ class Eq:
             first.setdefault((x["ic"], x["start_frame"]), i)
         self.windows = np.array(sorted(first.values()))
         self.groups = np.array([s["samples"][i]["ic"] for i in self.windows])  # windows of one IC stay together
+        self.ids = [(s["samples"][i]["ic"], s["samples"][i]["start_frame"]) for i in self.windows]  # identities
         self.shift = np.array(s["norm"]["shift"], np.float32)[:, None, None]
         self.scale = np.array(s["norm"]["scale"], np.float32)[:, None, None]
         self._u = self._st = None
@@ -76,15 +77,21 @@ def load_equations(roots):
     return eqs
 
 
+def _stamp(d):
+    st = os.stat(f"{d}/u.npy")
+    return [st.st_size, int(st.st_mtime)]
+
+
 def _nonfinite(d):
     u = np.load(f"{d}/u.npy", mmap_mode="r")
-    return [i for i in range(u.shape[0]) if not np.isfinite(np.asarray(u[i], np.float32)).all()]
+    return {"stamp": _stamp(d), "bad": [i for i in range(u.shape[0]) if not np.isfinite(np.asarray(u[i], np.float32)).all()]}
 
 
-def drop_nonfinite(eqs, path, workers=32):
-    """Remove windows containing non-finite values (some exist in A).  One full read per equation, cached by id."""
+def drop_nonfinite(eqs, path, workers=16):
+    """Remove windows containing non-finite values (8 equations of A have them).  One full read per equation,
+    cached by id and u.npy (size, mtime), so a repaired or re-copied-with-changes file is rescanned."""
     cache = json.load(open(path)) if os.path.exists(path) else {}
-    todo = [e for e in eqs if e.gid not in cache]
+    todo = [e for e in eqs if not isinstance(cache.get(e.gid), dict) or cache[e.gid]["stamp"] != _stamp(e.dir)]
     if todo:
         with Pool(workers) as p:
             cache.update(zip([e.gid for e in todo], p.map(_nonfinite, [e.dir for e in todo], chunksize=4)))
@@ -92,9 +99,10 @@ def drop_nonfinite(eqs, path, workers=32):
         json.dump(cache, open(path + ".tmp", "w"))
         os.replace(path + ".tmp", path)
     for e in eqs:
-        e.bad = set(cache[e.gid])
+        e.bad = set(cache[e.gid]["bad"])
         keep = np.array([w not in e.bad for w in e.windows], bool)
         e.windows, e.groups = e.windows[keep], e.groups[keep]
+        e.ids = [x for x, k in zip(e.ids, keep) if k]
     return {e.gid: sorted(e.bad) for e in eqs if e.bad}
 
 

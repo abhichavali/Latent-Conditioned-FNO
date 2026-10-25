@@ -1,5 +1,6 @@
-# A u B, warm-started from the A run: backbone + encoder weights, A latents by id, new B rows N(0, 0.01^2).
-# A equations keep their A split (and val-IC windows); B equations containing A's held-out structures are rehearsal.
+# A u B (B with 30 ICs per equation), warm-started from the A run: backbone + encoder weights, A latents by id, new B
+# rows N(0, 0.01^2), fresh optimizer.  A equations keep their A split (val-IC by window identity); B equations
+# containing A's held-out structures are rehearsal.  ~2.5 h on the RTX 5090 at batch 16.
 base: A.yaml
 name: pretrain_AB
 data:
@@ -10,3 +11,7 @@ split:
   inherit: /workspace/runs/pretrain_A/splits.json
 train:
   init_from: /workspace/runs/pretrain_A      # its latest checkpoint, used only when this run has none of its own
+  steps: 150000                              # ~2.4 h at ~17.5 steps/s (batch 16); fewer if the loader is the limit
+  lr: 3.0e-4                                 # warm start: lower peak than from scratch
+  warm_frac: 0.05                            # backbone already trained; short lam = p = 0 phase for the new B latents
+  ramp_frac: 0.05

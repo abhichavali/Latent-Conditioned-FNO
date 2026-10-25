@@ -40,7 +40,17 @@ lives in `/workspace/data/A` and `/workspace/data/B`.
 checkpoint into a run that has none of its own: backbone and encoder weights as they are, latent rows copied by
 equation id (`A/eq_0012`), B rows initialised N(0, 0.01^2), fresh optimizer. `split.inherit:
 /workspace/runs/pretrain_A/splits.json` keeps every A equation's split and val-IC windows and reuses A's held-out
-structures, so B equations containing them are rehearsal too.
+structures, so B equations containing them are rehearsal too. Val-IC is inherited by window identity (pool IC,
+start frame), so an in-place repair of A's windows keeps held-out ICs held out, and repaired equations that had no
+val-IC get it from ICs they were never trained on.
+
+Launch on pdebox3 once `/workspace/runs/pretrain_A/{config.yaml, splits.json, ckpt/step_<latest>.eqx}` are there
+(splits.json must carry `train_ids` / `val_ids`, see `splits.ids_of`):
+
+```sh
+ssh pdebox3 'setsid nohup bash /workspace/repo/model/run.sh config/AB.yaml > /dev/null 2>&1 < /dev/null & disown'
+# resize: append --steps N (kept on every restart);  stop: pkill -f '[r]un.sh config/AB.yaml'; pkill -TERM -f '[t]rain.py --config config/AB.yaml'
+```
 
 ## Running
 

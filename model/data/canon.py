@@ -108,10 +108,11 @@ def _graph_of(args):
 def cached_graphs(items, path, workers=16):
     """items [(gid, spec)] -> {gid: graph}, computed once (sympy is slow) and cached in a pickle at path."""
     cache = pickle.load(open(path, "rb")) if os.path.exists(path) else {}
-    todo = [(g, s) for g, s in items if g not in cache]
+    key = lambda s: repr((s["fields"], s.get("static", []), s["rhs"]))  # recompute if the equation changed
+    todo = [(g, s) for g, s in items if g not in cache or cache[g].get("key") != key(s)]
     if todo:
         with Pool(workers) as p:
-            cache.update(p.map(_graph_of, todo, chunksize=8))
+            cache.update((g, {**gr, "key": key(s)}) for (g, gr), (_, s) in zip(p.map(_graph_of, todo, chunksize=8), todo))
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         tmp = path + ".tmp"
         pickle.dump(cache, open(tmp, "wb"))
