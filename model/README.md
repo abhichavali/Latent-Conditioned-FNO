@@ -15,6 +15,8 @@ small simulation budget (later phases).
 | `train.py` | objective, logging, checkpoints, resume |
 | `run.sh` | restart loop (resumes from the latest checkpoint until `DONE`) |
 | `targets.py` | SWE coastal tsunami and Aliev–Panfilov-with-scar: specs, canonical graphs, knob samplers, solver, fixed test sets |
+| `eval.py` | phase 3: latent-collapse test, zero-shot (val-IC, rehearsal, SWE, AP) vs persistence, graph vs generic prior, calibration |
+| `active.py` | phase 4: few-shot active learning over K latent particles (theta, phi frozen); `summary` = headline plot + sims-to-target table |
 
 ## Data interface
 
@@ -93,9 +95,31 @@ On fixed val-IC batches (held-out ICs of training equations) and rehearsal batch
 
 | | fields / statics | L | frame_dt | T | knobs |
 |---|---|---|---|---|---|
-| swe | eta, u, v / b, s (fixed demo coast) | 4000 m | 10 s (0.25 s x 40) | 140 s | 2 fault sources: on, x in [0.08, 0.36], y in [0.2, 0.8], angle, amp, width, length, subsidence lobe (on, side, offset, amp) |
+| swe | eta, u, v / b, s (fixed demo coast) | 4 km | 10 s (0.25 s x 40) | 140 s | 2 fault sources: on, x in [0.08, 0.36], y in [0.2, 0.8], angle, amp, width, length, subsidence lobe (on, side, offset, amp) |
 | ap | u, v / D (scar, per IC) | 64 | 2.5 (0.02 x 125) | 35 | 2 broken fronts (on, x, y, angle, width, half length, wake, v amp), 2 stimuli (on, x, y, radius), scar (x, y, radius, D_min in [0.02, 0.05]) |
+
+**SWE is in km and s** (`targets.SWE_KM`): demos.SWE's L = 4000 m sits far outside pretraining's L (5–200; log L 8.3
+vs 1.6–5.3) and the model conditions on log L.  Physically identical: L = 4, g = 9.81e-3 km/s², viscosity 8e-6 km²/s;
+eta, u, v and b are metre values / `targets.KM`, sponge s (1/s) and time unchanged, knob params stay in metres.  The
+km solver reproduces the metre solver / 1000 to 3e-6 (`targets.check_swe_km`, run by `python targets.py`).  **A viz
+exporter must multiply eta, u, v, b by `targets.KM`** to get metres back.  `/workspace/targets/swe_m` is the same test
+set in metres (diagnostic: `adapter.normalize`'s absolute floors, IC std >= 1e-3 and 1.0 for an all-zero IC, are
+unit-dependent, so in km the eta IC std 1.4e-4 is floored and u, v start at 0 with scale 1).
 
 `targets.sample(name, n, rng)` -> (params, ics, statics); `targets.features(name, params)` -> knob features in [0, 1]
 for k-means; `targets.simulate(name, ics, statics)` -> trajectories; `targets.canonical_graph(name)`. Load a test set
 with `data.adapter.Eq("SWE", "/workspace/targets/swe")` like any training equation.
+
+## Evaluation and active learning
+
+```sh
+python eval.py --run /workspace/runs/pretrain_A [--ckpt .../step_X.eqx]       # -> /workspace/results/<run>_s<step>/results.json, zero_shot.png
+python active.py run --run RUN --ckpt CK --target swe|ap|swe_m|reh:A/eq_0123 --method active|random|generic
+python active.py summary --results /workspace/results/<run>_s<step>        # headline_raw_slot0.png, sims_to_target_raw_slot0.json
+```
+
+Metrics (both scripts, `eval.summarize`): relL2 over frames 1..14 from the IC at frame 0; `raw` = per (trajectory,
+frame, field) in physical units, averaged (the headline, = baselines.py `raw_*`, unit-free); `rel` = the training
+loss's relL2 in normalized space (= baselines.py `rel_*`); `traj` = per (trajectory, field) over all frames and space.
+Active learning writes `<results>/active/<target>_<method>/{history.jsonl, state.npz, DONE}` and resumes from
+`state.npz`.  Pin the checkpoint with `--ckpt` (a resumed run must not pick up a newer one).
