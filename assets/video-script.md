@@ -11,10 +11,10 @@ About 320 words at a brisk pace. Brackets are on-screen actions.
 | 0:35 | 5 · Equation → graph | [Click through] Every equation becomes a graph: variables and constants are nodes, operations connect them. Pair it with simulations and you get a training example. We built 5,120 of them, about 200,000 simulations, on four rented GPUs. |
 | 0:47 | 6 · Equation → forecast | [Click through] Give it an equation it's never seen. The encoder writes a latent code, a few real simulations sharpen it, and the neural operator turns it into a forecast. |
 | 0:57 | 7 · Applications | Three problems it never saw in training. |
-| 0:59 | 8 · Tsunami setup | A tsunami: an undersea quake sends a wave at the coast. [Click: equations] The shallow-water equations. |
-| 1:05 | 9 · Tsunami demo | [Drag the epicentre] Simula forecasts the wave while the solver is still working. [→ Flood-risk map, **Run 1,000 earthquakes**] A thousand earthquakes, flood risk for every stretch of coast, in five and a half seconds. |
-| 1:18 | 10 · Heart setup | A heart: scar tissue conducts slowly and can trigger an arrhythmia. [Click: equations] |
-| 1:22 | 11 · Heart demo | [Click a scar ring] Place a scar, and the spiral forms, about twelve times faster than the simulator. |
+| 0:59 | 8 · Heart setup | First, a heart: scar tissue conducts slowly and can trigger an arrhythmia. [Click: equations] |
+| 1:03 | 9 · Heart demo | [Click a scar ring] Place a scar, and the spiral forms, about twelve times faster than the simulator. |
+| 1:09 | 10 · Tsunami setup | Next, a tsunami: an undersea quake sends a wave at the coast. [Click: equations] The shallow-water equations. |
+| 1:15 | 11 · Tsunami demo | [Drag the epicentre] Simula forecasts the wave while the solver is still working. [→ Flood-risk map, **Run 1,000 earthquakes**] A thousand earthquakes, flood risk for every stretch of coast, in five and a half seconds. |
 | 1:28 | 12 · Wildfire setup | A wildfire, burning through fuel, pushed by the wind. [Click: equations] |
 | 1:32 | 13 · Wildfire demo | [Click an ignition ring] Start a fire anywhere and see where it's headed before it gets there. |
 | 1:38 | 14 · Results | On the heart, five simulations got Simula the accuracy a standard model needed sixty-four for: twelve times fewer. On wildfire, about two times. A thousand scenarios, one at a time, run ten times faster than the simulator. |

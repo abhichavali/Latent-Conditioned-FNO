@@ -6,7 +6,7 @@ export default {
   section: 'Applications',
   tone: 'sea',
   steps: 1,
-  Component: () => <Setup n={1} title="Tsunami forecasting" tone="sea" kind="tsunami" points={[
+  Component: () => <Setup n={2} title="Tsunami forecasting" tone="sea" kind="tsunami" points={[
       <>An undersea earthquake lifts the seafloor and sends a wave toward the coast</>,
       <>A 4 km stretch of coast, an island and a sloping seabed</>,
       <><b>The question:</b> where does it flood, and how badly?</>,

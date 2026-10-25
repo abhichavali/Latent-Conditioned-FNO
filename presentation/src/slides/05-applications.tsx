@@ -5,5 +5,5 @@ export default {
   title: 'Applications',
   section: 'Applications',
   Component: () => <Section title="Applications" />,
-  notes: `Three problems Simula never saw in pretraining: a tsunami, a heart, a wildfire. For each: the setup, the physics, then the demo.`,
+  notes: `Three problems Simula never saw in pretraining: a heart, a tsunami, a wildfire. For each: the setup, the physics, then the demo.`,
 } satisfies SlideDef
