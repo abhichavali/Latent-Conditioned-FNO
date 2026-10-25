@@ -2,9 +2,13 @@
 
 Per batch element: a training equation, k context windows C (k = 0 w.p. p0, else log-uniform on 1..K_max) and Q
 target windows T from other IC groups (train windows only, pretrain_AB's frozen splits).
-  L = relL2(G_theta(target IC, t; z), target frames) + beta * KL(q(z | G, C u T) || q(z | G, C)),  z ~ q(z | G, C u T)
-beta = beta * max(beta_floor, linear ramp over beta_ramp of the steps): never 0, so q(z | G, C) stays anchored
-(with a beta = 0 warm-up its sigma drifted freely, KL 7458 at step 2200).  Non-finite updates are skipped; a log window
+  L = relL2(G_theta(target IC, t; z), target frames) + beta * KL(q(z | G, C u T) || q(z | G, C)),
+  z ~ q(z | G, C) for the first Q // 2 targets of each equation (the test-time posterior, trained directly, so it is
+  anchored without the KL), z ~ q(z | G, C u T) for the rest.
+beta = beta * max(beta_floor, linear ramp over beta_ramp of the steps after beta_delay of them).  Why: the decoder's z
+path is zero at init (dRel/dz = 0), so any KL there is the encoder's only gradient and Adam makes it a full-size step:
+the first v3 run collapsed q to context-invariance by step ~1100 (KL 127 -> 0.05; rehearsal k0 = k64 at step 18k).
+Non-finite updates are skipped; a log window
 with only non-finite steps exits without a checkpoint (run.sh resumes from the last finite one).
 
   python train_ctx.py --config config/ctx.yaml [--steps N] [--set model.width=128 --set name=ctx_smoke]
@@ -72,13 +76,16 @@ def make_steps(opt, cap):
         def loss_fn(params):
             fno, enc = params
             mu, ls = posterior(enc, b, G, jnp.stack([b["cmask"], b["ctmask"]], 1))
-            z = mu[:, 1] + jnp.exp(ls[:, 1]) * jax.random.normal(key, mu[:, 1].shape)
+            z = mu + jnp.exp(ls) * jax.random.normal(key, mu.shape)  # (E, 2, dz): C, C u T
             fb, Q = flat(b)
-            rel, _ = train.rel_l2(batched(fno, fb, jnp.repeat(z, Q, 0)), fb["y"], fb["pres"][:, :F_MAX], cap=cap)
+            pc = (jnp.arange(z.shape[0] * Q) % Q < Q // 2)[:, None]  # rows decoded from q(z | G, C)
+            zz = jnp.where(pc, jnp.repeat(z[:, 0], Q, 0), jnp.repeat(z[:, 1], Q, 0))
+            rel, r = train.rel_l2(batched(fno, fb, zz), fb["y"], fb["pres"][:, :F_MAX], cap=cap)
+            mc = jnp.broadcast_to((fb["pres"][:, None, :F_MAX] > 0) & pc[:, None], r.shape).astype(jnp.float32)
             kl = kl_diag(mu[:, 1], ls[:, 1], mu[:, 0], ls[:, 0])
             k0 = (b["k"] == 0).astype(jnp.float32)
             avg = lambda v, w: (v * w).sum() / jnp.maximum(w.sum(), 1)
-            aux = {"rel": rel, "kl": kl.mean(), "kl_k0": avg(kl, k0), "kl_kpos": avg(kl, 1 - k0),
+            aux = {"rel": rel, "rel_c": (r * mc).sum() / jnp.maximum(mc.sum(), 1), "kl": kl.mean(), "kl_k0": avg(kl, k0), "kl_kpos": avg(kl, 1 - k0),
                    "sig_c": jnp.exp(ls[:, 0]).mean(), "sig_ct": jnp.exp(ls[:, 1]).mean(),
                    "dmu": jnp.sqrt(((mu[:, 1] - mu[:, 0]) ** 2).sum(-1)).mean(), "k_mean": b["k"].mean()}
             loss = rel + beta * kl.mean()
@@ -226,13 +233,13 @@ def main():
     signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
     base_key = jax.random.PRNGKey(t["seed"] + 1)
     total = t["steps"]
-    ramp = max(int(t["beta_ramp"] * total), 1)
+    ramp, delay = max(int(t["beta_ramp"] * total), 1), int(t.get("beta_delay", 0) * total)
     it = stream.iterate(step)
     acc, t_ck, t_log, s_log = [], time.time(), time.time(), step
     log({"event": "start", **validate()})
     t_val = time.time()
     while step < total:
-        beta = t["beta"] * max(t["beta_floor"], min(step / ramp, 1.0))
+        beta = t["beta"] * max(t["beta_floor"], min(max(step - delay, 0) / ramp, 1.0))
         b = jax.device_put(next(it))
         params, opt_state, aux = train_step(params, opt_state, b, Gd, jax.random.fold_in(base_key, step), jnp.float32(beta))
         acc.append(aux)
