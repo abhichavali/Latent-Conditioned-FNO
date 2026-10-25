@@ -15,7 +15,7 @@ TSUNAMI (drag in the map)
 
 FLOOD-RISK MAP (→)
 - Click "Run 1,000 earthquakes". The map fills in over the coast with the counter.
-- "1,000 earthquakes, every stretch of coast, in about a second."
+- "1,000 earthquakes, every stretch of coast, in about five seconds."
 
 HEART (→)
 - Click the tissue to place a scar: "Place a scar, and a spiral (the arrhythmia) forms, instantly."

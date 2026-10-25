@@ -22,7 +22,7 @@ function Learned() {
   )
 }
 
-// 3. Picks smart experiments: of many possible simulations, it runs the few that teach it the most.
+// 3. Learns from a few runs: fine-tunes on a handful of simulations of the new problem.
 const DOTS = Array.from({ length: 49 }, (_, i) => ({ x: 48 + (i % 7) * 24, y: 48 + Math.floor(i / 7) * 24 }))
 const PICKED = [9, 25, 39]
 function Picks({ step }: { step: number }) {
@@ -67,8 +67,8 @@ export default {
         <svg className="arrow" viewBox="0 0 80 24" {...build(2, 'fade')}><path d="M0 12 H72 M60 2 L74 12 L60 22" /></svg>
         <div className="how" {...build(2, 'fade', 0.2)}>
           <Picks step={2} />
-          <h3>Picks smart experiments</h3>
-          <p>Runs only the <b>few</b> simulations that teach it the most</p>
+          <h3>Learns from a few runs</h3>
+          <p>Needs only a <b>handful</b> of simulations of your problem</p>
         </div>
       </div>
       <p className="punch" {...build(3, 'words')}>A handful of simulations instead of thousands.</p>
@@ -78,6 +78,6 @@ export default {
 
 Simula learned from 5,000+ kinds of physics before it ever sees your problem. (5,120 equations in pretraining.)
 (click) It reads your equation and starts with an educated guess.
-(click) Then it runs only the few simulations that teach it the most.
+(click) Then it learns your problem from just a handful of simulations. (We tested smart picking vs random picking: random was as good or better, so we don't claim smart picking.)
 (click) Punchline: "A handful of simulations instead of thousands."`,
 } satisfies SlideDef

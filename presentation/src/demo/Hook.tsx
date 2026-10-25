@@ -17,6 +17,8 @@ export function Hook() {
   return <HookLive bank={bank.value} />
 }
 
+const SLOW = 20 // measured timings are sub-second; the race plays in slow motion, the clocks show real time
+
 function HookLive({ bank }: { bank: TsunamiBank }) {
   const left = useRef<HTMLDivElement>(null), right = useRef<HTMLDivElement>(null)
   const clock = useRef<HTMLSpanElement>(null), bar = useRef<HTMLElement>(null), lState = useRef<HTMLSpanElement>(null)
@@ -39,12 +41,12 @@ function HookLive({ bank }: { bank: TsunamiBank }) {
       L.engine.etaMax = R.engine.etaMax = etaMax(bed, sim)
       for (const v of [L, R]) { v.engine.camera.position.copy(VIEW.pos); v.engine.controls.target.copy(VIEW.target) }
       const fast = new Clip(8, true, 1.5), slow = new Clip(8, true, 1.5)
-      fast.play(sim, t.simula)
+      fast.play(sim, t.simula * SLOW)
       const t0 = performance.now()
       let finished = false
       R.engine.onFrame = dt => fast.tick(dt, (a, b, k) => R.engine.setFrames(a, b, k))
       L.engine.onFrame = dt => {
-        const s = (performance.now() - t0) / 1000, p = Math.min(s / t.solver, 1)
+        const s = (performance.now() - t0) / 1000 / SLOW, p = Math.min(s / t.solver, 1)
         if (p < 1) { const f = solver[Math.floor(p * (solver.length - 1))]; L.engine.setFrames(f, f, 0) } // one solved step at a time
         else {
           if (!finished) { finished = true; slow.play(solver) }
@@ -61,7 +63,7 @@ function HookLive({ bank }: { bank: TsunamiBank }) {
     return () => { dead = true; dispose() }
   }, [bank, t.simula, t.solver])
 
-  const tags = [t.placeholder && 'placeholder timing', bank.mock && 'mock frames (baseline FNO, not Simula)'].filter(Boolean)
+  const tags = [SLOW > 1 && `slowed ${SLOW}×`, t.placeholder && 'placeholder timing', bank.mock && 'mock frames (baseline FNO, not Simula)'].filter(Boolean)
   return (
     <>
       <div className="hook">
@@ -83,7 +85,7 @@ function HookLive({ bank }: { bank: TsunamiBank }) {
         </div>
         {error && <div className="bank-status"><strong>Couldn't load the hook</strong><p>{error}</p></div>}
       </div>
-      {tags.length > 0 && <p className="ph-line">{tags.join(' · ')} · rehearsal only</p>}
+      {tags.length > 0 && <p className="ph-line">{tags.join(' · ')}{t.placeholder || bank.mock ? ' · rehearsal only' : ''}</p>}
     </>
   )
 }
