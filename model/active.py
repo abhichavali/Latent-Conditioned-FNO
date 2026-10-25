@@ -407,7 +407,7 @@ def summary(a):
     import matplotlib.pyplot as plt
 
     key = a.metric
-    names = {"active_v2": "Simula (active v2)", "generic_v2": "active v2, generic prior", "active": "pretrained + active",
+    names = {"active_v2": "pretrained + active v2", "generic_v2": "active v2, generic prior", "active": "pretrained + active",
              "random": "pretrained + random", "generic": "pretrained + generic prior"}
     colors = {"active_v2": "#b04a8f", "generic_v2": "#d98cbf", "active": "#1b7f6b", "random": "#7aa6d6", "generic": "#e0a030",
               "scratch": "#555555"}
