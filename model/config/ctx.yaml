@@ -52,6 +52,7 @@ train:
   beta: 1.0e-3                            # KL(q(z|G,C u T) || q(z|G,C)) weight (nats summed over dz)
   beta_floor: 0.0                         # 0.05 collapsed q to context-invariance (train_ctx.py docstring)
   beta_delay: 0.05                        # beta = 0 for this fraction of the steps (decoder learns to use z first)
+  g_drop: 0.5                             # fraction of equations whose graph terms are dropped w.p. rho ~ U(0,1)
   beta_ramp: 0.10                         # then a linear ramp from 0 over this fraction of the steps
   log_every: 100
   val_minutes: 20

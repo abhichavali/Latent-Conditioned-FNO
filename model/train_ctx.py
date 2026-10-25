@@ -8,6 +8,9 @@ target windows T from other IC groups (train windows only, pretrain_AB's frozen 
 beta = beta * max(beta_floor, linear ramp over beta_ramp of the steps after beta_delay of them).  Why: the decoder's z
 path is zero at init (dRel/dz = 0), so any KL there is the encoder's only gradient and Adam makes it a full-size step:
 the first v3 run collapsed q to context-invariance by step ~1100 (KL 127 -> 0.05; rehearsal k0 = k64 at step 18k).
+Graph-term dropout (g_drop): G carries every coefficient (canon: sign, log10|c|), so on training equations C is redundant
+and q(z | G, C) ~ q(z | G) (second run, step 6k: k0..k64 and k16ct equal to 4 decimals, dmu 0.08 on |z| = 11).  For a
+g_drop fraction of equations each graph term is dropped with probability rho ~ U(0, 1), so z must come from C.
 Non-finite updates are skipped; a log window
 with only non-finite steps exits without a checkpoint (run.sh resumes from the last finite one).
 
@@ -64,19 +67,25 @@ def flat(b):
     return out, Q
 
 
-def posterior(enc, b, G, masks):
-    """masks (E, P, S) -> mu, log sigma (E, P, dz)."""
+def posterior(enc, b, G, masks, tkeep=None):
+    """masks (E, P, S), tkeep (E, T) graph terms kept (None: all) -> mu, log sigma (E, P, dz)."""
     g = jax.tree_util.tree_map(lambda a: a[b["eq"]], G)
+    if tkeep is not None:
+        g = {**g, "term_mask": g["term_mask"] * tkeep}
     return jax.vmap(enc)(g, b["cx"], b["cst"], b["caux"], b["cpres"], b["logT"], b["logL"], masks)
 
 
-def make_steps(opt, cap):
+def make_steps(opt, cap, g_drop=0.0):
     @eqx.filter_jit
     def train_step(params, opt_state, b, G, key, beta):
         def loss_fn(params):
             fno, enc = params
-            mu, ls = posterior(enc, b, G, jnp.stack([b["cmask"], b["ctmask"]], 1))
-            z = mu + jnp.exp(ls) * jax.random.normal(key, mu.shape)  # (E, 2, dz): C, C u T
+            k1, k2, k3, key_z = jax.random.split(key, 4)
+            E, T = b["eq"].shape[0], G["term_mask"].shape[1]
+            rho = jnp.where(jax.random.uniform(k1, (E,)) < g_drop, jax.random.uniform(k2, (E,)), 0.0)
+            tkeep = (jax.random.uniform(k3, (E, T)) >= rho[:, None]).astype(jnp.float32)
+            mu, ls = posterior(enc, b, G, jnp.stack([b["cmask"], b["ctmask"]], 1), tkeep)
+            z = mu + jnp.exp(ls) * jax.random.normal(key_z, mu.shape)  # (E, 2, dz): C, C u T
             fb, Q = flat(b)
             pc = (jnp.arange(z.shape[0] * Q) % Q < Q // 2)[:, None]  # rows decoded from q(z | G, C)
             zz = jnp.where(pc, jnp.repeat(z[:, 0], Q, 0), jnp.repeat(z[:, 1], Q, 0))
@@ -97,10 +106,10 @@ def make_steps(opt, cap):
         return eqx.apply_updates(params, upd), opt_state, aux
 
     @eqx.filter_jit
-    def eval_step(params, b, G, mask):
-        """z = posterior mean under mask (E, S) -> uncapped per-term relL2 (E * Q, nq, F), presence (E * Q, F)."""
+    def eval_step(params, b, G, mask, nog=False):
+        """z = posterior mean under mask (E, S) (nog: no graph terms) -> uncapped per-term relL2 (E * Q, nq, F), presence."""
         fno, enc = params
-        mu, _ = posterior(enc, b, G, mask[:, None])
+        mu, _ = posterior(enc, b, G, mask[:, None], jnp.zeros(G["term_mask"].shape[1:])[None] if nog else None)
         fb, Q = flat(b)
         _, r = train.rel_l2(batched(fno, fb, jnp.repeat(mu[:, 0], Q, 0)), fb["y"], fb["pres"][:, :F_MAX])
         return r, fb["pres"][:, :F_MAX]
@@ -152,7 +161,7 @@ def main():
         side = path[:-4] + ".json"
         train_s0 = json.load(open(side))["train_s"] if os.path.exists(side) else 0.0
         print(f"resumed from {path} at step {step}", flush=True)
-    train_step, eval_step = make_steps(opt, t.get("rel_cap"))
+    train_step, eval_step = make_steps(opt, t.get("rel_cap"), t.get("g_drop", 0.0))
     npar = lambda m: sum(x.size for x in jax.tree_util.tree_leaves(eqx.filter(m, eqx.is_array)))
     print(f"params: fno {npar(params[0]) / 1e6:.1f}M, context encoder {npar(params[1]) / 1e6:.2f}M; train eqs {len(tr)}, "
           f"rehearsal eqs {len(reh)}", flush=True)
@@ -197,14 +206,14 @@ def main():
         r0 = np.concatenate([x[:, :, 0].reshape(-1) for x, _ in out])
         return {"rel": float(c(r[m]).mean()), "rel_median": float(np.median(r[m])), "rel_slot0": float(c(r0).mean())}
 
-    def run_eval(name, k, ct=False):
+    def run_eval(name, k, ct=False, nog=False):
         out = []
         for b in val[name]:
             S_ = b["cmask"].shape[1]
             mask = np.arange(S_)[None] < np.minimum(k, b["k"])[:, None]
             if ct:
                 mask = mask | (np.arange(S_)[None] >= K)
-            out.append(jax.device_get(eval_step(params, jax.device_put(b), Gd, jnp.asarray(mask))))
+            out.append(jax.device_get(eval_step(params, jax.device_put(b), Gd, jnp.asarray(mask), nog)))
         return summ(out)
 
     def persistence(name):
@@ -227,6 +236,8 @@ def main():
             for k in t["val_k"]:
                 out.update({f"{name}/k{k}/{m}": v for m, v in run_eval(name, k).items()})
             out.update({f"{name}/k16ct/{m}": v for m, v in run_eval(name, 16, ct=True).items()})
+            for k in (0, 16):  # no graph: z from the context alone (does the encoder read C?)
+                out.update({f"{name}/nog_k{k}/{m}": v for m, v in run_eval(name, k, nog=True).items()})
         return out
 
     stop = []
