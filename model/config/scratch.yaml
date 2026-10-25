@@ -1,0 +1,26 @@
+# FNO from scratch on N simulations of one target (baselines.py): the pretraining backbone and interface with dz = 0,
+# so the conditioning MLP sees only [Fourier features of t, log T / 4, log L / 4]; no latent table, no encoder.
+# Optimizer, batch, queries, rel_cap come from A.yaml.
+base: A.yaml
+name: scratch
+model:
+  dz: 0
+train:
+  warmup: 500
+scratch:
+  out: /workspace/results/scratch      # data/, runs/, logs/, {swe,ap}.json, scratch_vs_N.png
+  targets: /workspace/targets          # fixed test sets {swe,ap}/ (100 ICs, seed 2026, 15 frames)
+  n_sims: 512
+  data_seed: 7                         # training sims; != the test seed 2026
+  sizes: [8, 16, 32, 64, 128, 256, 512]  # nested prefixes of the 512
+  seeds: [0, 1]                        # seed = init, batch order, which sims are val
+  seed2_max_n: 64                      # extra seeds only for N <= this
+  val_frac: 0.1                        # sims held out for early stopping, at least val_min
+  val_min: 2
+  steps_per_sim: 80                    # max steps = clip(steps_per_sim * N, steps_min, steps_max); cosine over it
+  steps_min: 4000
+  steps_max: 20000
+  eval_every: 200
+  patience: 10                         # evals without a min_delta (relative) val improvement -> stop
+  min_delta: 0.005
+  ckpt_minutes: 10

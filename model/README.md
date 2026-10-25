@@ -125,3 +125,61 @@ frame, field) in physical units, averaged (the headline, = baselines.py `raw_*`,
 loss's relL2 in normalized space (= baselines.py `rel_*`); `traj` = per (trajectory, field) over all frames and space.
 Active learning writes `<results>/active/<target>_<method>/{history.jsonl, state.npz, DONE}` and resumes from
 `state.npz`.  Pin the checkpoint with `--ckpt` (a resumed run must not pick up a newer one).
+
+## Scratch baseline: FNO trained only on N target simulations
+
+`baselines.py` + `config/scratch.yaml` give the "no prior" curve. The model is the same backbone and interface as the
+pretrained model, trained from scratch on N simulations of one target. `model.dz: 0` makes the conditioning MLP see
+only [Fourier features of t, log T / 4, log L / 4], with no latent table and no encoder. Everything else is as in
+pretraining: FiLM plus 4 spectral banks (151M parameters), IC normalization, presence, mask and coordinate channels,
+the residual on u0, the capped relL2 loss, AdamW (lr 5e-4, cosine to 5%), and batch 16 x 4 query frames.
+
+- **Data.** `gen` writes 512 simulations per target with `targets.write_test(seed=7)` (the test sets use seed 2026)
+  to `<out>/data/{swe,ap}_train/`, in the test-set layout (`params.npy` = knobs). SWE uses the mixed units of
+  `targets.py`. `sweep` refuses training data whose fields, statics, L, frame_dt, frames or rhs differ from the
+  test set's, so data in another unit convention cannot slip through.
+- **Protocol per (target, N, seed).** N in {8, ..., 512}, taken as nested prefixes of the 512. max(2, 10%) of the N
+  are held out for early stopping (which ones depends on the seed). Training runs a cosine schedule (warmup 500)
+  over clip(80 N, 4000, 20000) steps and evaluates val relL2 every 200 steps. It stops after 10 evaluations without
+  a 0.5% improvement, and the model is tested at its best-val step. Seeds 0 and 1 (init, batch order, val choice)
+  at every N.
+- **Metrics.** Computed on the fixed test sets (100 ICs, frames 1..14 from the IC at frame 0), the same as
+  `eval.summarize`. `raw` is the physical relL2 per (IC, frame, field), averaged; it is the headline.
+  `rel` is the training loss's normalized relL2. `traj` is per (IC, field) over all frames. `*_slot0` is the primary
+  field (SWE eta, AP u) and `*_all` is the mean over fields. The AP seed-0 runs predate `traj`, so in the JSON
+  `n` counts the runs behind each mean.
+- **Outputs.** In `/workspace/results/scratch/` (pdebox3), copied to `results/scratch/`:
+  - `{swe,ap}.json`: keyed by N, with mean and std over seeds per metric, plus steps, best step, early stop and
+    train seconds per run;
+  - `meta.json`: settings, units and the persistence baseline;
+  - `scratch_vs_N.png`;
+  - `runs/<target>_N<N>_s<seed>.json`: val curve and test metrics;
+  - `runs/*.npz`: per-term test errors (box only).
+
+```sh
+python baselines.py gen --config config/scratch.yaml                          # ~1 min on a GPU
+python baselines.py sweep --config config/scratch.yaml --target swe [--sizes 8 16] [--seeds 0 1]   # resumable
+python baselines.py summary --config config/scratch.yaml                      # JSON + plot (CPU)
+```
+
+Results: test relL2, mean ± std over seeds. SWE has seed 0 only; AP has seeds 0 and 1 (AP `traj` comes from seed 1).
+Runs took 3–16 min each on the RTX 5090 or RTX PRO 4000 for N ≤ 128. SWE N = 256 and 512 took 49 min each on the
+RTX PRO 4000 (6.8 steps/s, about 19 steps/s on the 5090).
+
+| N | SWE raw η | SWE raw all | SWE rel η | AP raw u | AP raw all | AP rel u |
+|---:|---:|---:|---:|---:|---:|---:|
+| 8 | 1.089 | 1.026 | 1.090 | 1.641 ± 0.075 | 1.163 ± 0.033 | 0.763 ± 0.001 |
+| 16 | 0.548 | 0.607 | 0.544 | 1.113 ± 0.072 | 0.848 ± 0.029 | 0.627 ± 0.000 |
+| 32 | 0.417 | 0.511 | 0.413 | 1.107 ± 0.016 | 0.812 ± 0.002 | 0.562 ± 0.013 |
+| 64 | 0.284 | 0.344 | 0.282 | 0.880 ± 0.076 | 0.659 ± 0.044 | 0.446 ± 0.015 |
+| 128 | 0.203 | 0.205 | 0.201 | 0.543 ± 0.013 | 0.453 ± 0.011 | 0.360 ± 0.013 |
+| 256 | 0.122 | 0.117 | 0.121 | 0.412 ± 0.019 | 0.354 ± 0.006 | 0.288 ± 0.004 |
+| 512 | 0.078 | 0.073 | 0.077 | 0.286 ± 0.003 | 0.244 ± 0.007 | 0.215 ± 0.002 |
+| persistence | 2.353 | 1.451 | 2.340 | 1.784 | 1.460 | 1.083 |
+
+- **Overfitting.** Small N overfits hard: train relL2 reaches 0.02–0.04 while val stays at 0.3–1.2. SWE N = 8 never
+  generalizes, so the best-val model is the step-200 one, close to predicting zero (relL2 ≈ 1).
+- **SWE N = 256, 512.** Both ran the full 20000-step cap with val still creeping down (0.080 at the end for 512),
+  so they are mildly under-trained. AP runs stopped early at 2400–10000 steps.
+- **AP u.** Physical u error is above 1 for N ≤ 32: the resting u is near 0, so frames with small ‖u‖ inflate the
+  per-frame ratio.

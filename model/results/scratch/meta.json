@@ -1,0 +1,154 @@
+{
+ "targets": {
+  "swe": {
+   "fields": [
+    "eta",
+    "u",
+    "v"
+   ],
+   "L": 4.0,
+   "frame_dt": 0.01,
+   "rhs": {
+    "eta": "-dx((eta - b)*u) - dy((eta - b)*v) + 0.008*lap(eta) - s*eta",
+    "u": "-u*dx(u) - v*dy(u) - 9.81*dx(eta) + 0.008*lap(u) - s*u",
+    "v": "-u*dx(v) - v*dy(v) - 9.81*dy(eta) + 0.008*lap(v) - s*v"
+   },
+   "persistence": {
+    "rel_slot0": 2.340012788772583,
+    "rel_all": 1.440364122390747,
+    "raw_slot0": 2.3532607555389404,
+    "raw_all": 1.4510868787765503,
+    "traj_slot0": 2.179628849029541,
+    "traj_all": 1.3932095766067505,
+    "rel_per_field": [
+     2.340013027191162,
+     1.0,
+     0.9810798168182373
+    ],
+    "raw_per_field": [
+     2.3532631397247314,
+     1.0,
+     1.0
+    ],
+    "traj_per_field": [
+     2.179628849029541,
+     1.0,
+     1.0
+    ],
+    "raw_slot0_median": 2.330753803253174,
+    "rel_slot0_median": 2.327953815460205
+   }
+  },
+  "ap": {
+   "fields": [
+    "u",
+    "v"
+   ],
+   "L": 64.0,
+   "frame_dt": 2.5,
+   "rhs": {
+    "u": "dx(D*dx(u)) + dy(D*dy(u)) + 8*u*(1 - u)*(u - 0.15) - u*v",
+    "v": "0.05*lap(v) + (0.01 + 0.2*v/(u + 0.3))*(-v - 8*u*(u - 0.15 - 1))"
+   },
+   "persistence": {
+    "rel_slot0": 1.0827547311782837,
+    "rel_all": 1.1738308668136597,
+    "raw_slot0": 1.784193992614746,
+    "raw_all": 1.4600704908370972,
+    "traj_slot0": 1.008699893951416,
+    "traj_all": 1.0409060716629028,
+    "rel_per_field": [
+     1.082755208015442,
+     1.264906406402588
+    ],
+    "raw_per_field": [
+     1.7841951847076416,
+     1.135947346687317
+    ],
+    "traj_per_field": [
+     1.0087000131607056,
+     1.0731122493743896
+    ],
+    "raw_slot0_median": 0.9946650266647339,
+    "rel_slot0_median": 1.0529122352600098
+   }
+  }
+ },
+ "metric": "(fixed test sets, 100 ICs, frames 1..14 from the IC at frame 0), as eval.py summarize: *_slot0 = primary\nfield, *_all = also averaged over the present fields.  rel = train.rel_l2 uncapped per (IC, frame, field) in the\nmodel's normalized space (the loss), averaged over ICs and frames; raw = |pred - true| / |true| per (IC, frame, field)\nin physical units, averaged over frames and ICs (unit-free; eval.py's headline); traj = the same per (IC, field) over\n(frames, x, y), averaged over ICs.",
+ "std": "over seeds, ddof 0 (0 for one seed); n = runs with that metric",
+ "model": {
+  "width": 64,
+  "layers": 4,
+  "modes": 24,
+  "banks": 4,
+  "dz": 0,
+  "n_freq": 16,
+  "max_freq": 64,
+  "cond_hidden": 256,
+  "head": 128
+ },
+ "train": {
+  "seed": 0,
+  "steps": 270000,
+  "lr": 0.0005,
+  "lr_end": 0.05,
+  "warmup": 500,
+  "enc_lr_mult": 1.5,
+  "z_lr_mult": 10,
+  "wd": 0.0001,
+  "clip": 1.0,
+  "rel_cap": 4.0,
+  "lam": 0.01,
+  "beta": 0.0001,
+  "p_enc": 0.5,
+  "warm_frac": 0.12,
+  "ramp_frac": 0.06,
+  "log_every": 100,
+  "val_minutes": 10,
+  "val_batches": 24,
+  "ckpt_minutes": 15,
+  "keep": 3
+ },
+ "data": {
+  "roots": [
+   {
+    "tag": "A",
+    "path": "/workspace/data/A"
+   }
+  ],
+  "batch": 16,
+  "queries": 4,
+  "eq_weight_power": 0.5,
+  "workers": 12,
+  "prefetch": 8
+ },
+ "scratch": {
+  "out": "/workspace/results/scratch",
+  "targets": "/workspace/targets",
+  "n_sims": 512,
+  "data_seed": 7,
+  "sizes": [
+   8,
+   16,
+   32,
+   64,
+   128,
+   256,
+   512
+  ],
+  "seeds": [
+   0,
+   1
+  ],
+  "seed2_max_n": 64,
+  "val_frac": 0.1,
+  "val_min": 2,
+  "steps_per_sim": 80,
+  "steps_min": 4000,
+  "steps_max": 20000,
+  "eval_every": 200,
+  "patience": 10,
+  "min_delta": 0.005,
+  "ckpt_minutes": 10
+ }
+}
