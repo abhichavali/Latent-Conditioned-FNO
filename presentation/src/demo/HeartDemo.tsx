@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { loadBank, loadFrames, nearest, ratio, timing, useAsync, type HeartBank, type Scar } from './bank'
 import { Clip, HeartEngine, mount, surface } from './engines'
-import { BankStatus, Equations, MockBadge, SLOW, SolverCard } from './hud'
+import { BankStatus, MockBadge, SLOW, SolverCard } from './hud'
 
 type Kind = 'heart' | 'fire'
 const TEXT = {
@@ -190,7 +190,6 @@ function HeartLive({ bank, kind }: { bank: HeartBank; kind: Kind }) {
         <span className="kicker c-ember">{T.kicker(bank.scars.some(s => s.ablations.length))}</span>
         <h3>{!scar ? T.place : !abl ? T.formed(scar.ablations.length > 0) : T.ask}</h3>
       </div>
-      <Equations kind={kind} />
       <SolverCard t={t} run={run} who={bank.mock ? 'Mock forecast' : 'Simula'} className="corner" />
       {scar && scar.ablations.length > 0 && (
         <div className="ablations glass">

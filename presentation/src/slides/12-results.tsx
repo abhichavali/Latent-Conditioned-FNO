@@ -11,7 +11,7 @@ const dec = (v: number | null) => (v !== null && v < 10 ? 1 : 0)
 const COLORS: Record<string, string> = { simula: 'var(--sea)', standard_ai: '#8c97a8' }
 const series = results.chart.series.map(s => ({
   name: s.points.length ? s.label : `${s.label}: results pending`,
-  points: s.points.map(p => ({ x: p.sims, y: p.error })),
+  points: s.points.filter(p => s.id !== 'simula' || p.sims === 5 || p.sims === 10).map(p => ({ x: p.sims, y: p.error })), // Simula: 5 and 10 simulations, where the gain is
   color: COLORS[s.id] ?? 'var(--latent)', step: 1,
 }))
 const xs = series.flatMap(s => s.points.map(p => p.x)), ys = series.flatMap(s => s.points.map(p => p.y))
@@ -34,7 +34,7 @@ export default {
         <div className="giants">
           <Stat value={results.fewer_simulations} decimals={dec(results.fewer_simulations)} unit="×" step={0}
             label={<><b>fewer simulations</b> than a standard AI model to reach the same accuracy (heart; wildfire 2×)</>} />
-          <Stat value={speedup} decimals={dec(speedup)} unit="×" step={0}
+          <Stat value={speedup} decimals={1} unit="×" step={0}
             label={<><b>faster</b> than the simulator: {seq.scenarios.toLocaleString('en-US')} scenarios, one at a time, <span style={{ whiteSpace: 'nowrap' }}>{seq.simula_seconds === null ? '—' : fmtDuration(seq.simula_seconds)} vs {seq.solver_seconds === null ? '—' : fmtDuration(seq.solver_seconds)}</span></>} />
         </div>
         <div className="chart-box" {...build(1, 'fade')}>
@@ -43,7 +43,7 @@ export default {
           {simulaPending && <div className="chart-pending" {...build(1, 'fade', 0.8)}>Simula curve: results pending</div>}
         </div>
       </div>
-      <p className="footnote" {...build(1, 'fade', 1)}>Simula never trained on tsunamis or heart tissue.</p>
+      <p className="footnote" {...build(1, 'fade', 1)}>Simula never trained on tsunamis, heart tissue or wildfires.</p>
     </div>
   ),
   notes: `(3:10–3:35) All values come from src/data/results.json. While "Results pending" shows, don't quote numbers.

@@ -462,3 +462,15 @@ html:has(.print), html:has(.print) body, html:has(.print) #root { height: auto; 
   .icon.eq .scan, .verdict { animation: none; }
   .progress { transition: none; }
 }
+
+/* application setup slides: scenario on the left, governing equations on the right */
+.setup .kicker { display: block; margin-bottom: 18px; }
+.setup-body { display: grid; grid-template-columns: 1fr 1.2fr; gap: 64px; margin-top: 56px; align-items: start; }
+.setup-points { margin: 0; padding: 0; list-style: none; display: grid; gap: 30px; }
+.setup-points li { position: relative; padding-left: 34px; font: 300 34px / 1.35 var(--sans); color: var(--ink-2); }
+.setup-points li::before { content: ''; position: absolute; left: 0; top: 0.62em; width: 14px; height: 2px; background: var(--accent); }
+.setup-points b { color: var(--ink); font-weight: 500; }
+.setup-eqs { padding: 34px 38px 28px; display: grid; gap: 16px; background: var(--glass-solid); }
+.setup-eqs .kicker { color: var(--muted); margin-bottom: 6px; }
+.setup-eqs .katex { font-size: 34px; color: var(--ink); }
+.setup-eqs small { font: 400 19px / 1.4 var(--mono); color: var(--muted); }

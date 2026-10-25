@@ -6,32 +6,33 @@ import { useMode, useStep } from '../deck/SlideFrame'
 import { reduced } from '../deck/motion'
 import { fmtDuration, loadBank, loadFrames, nearest, ratio, results, timing, useAsync, type TsunamiBank } from './bank'
 import { Clip, etaMax, riskLayer, tsunami } from './engines'
-import { BankStatus, Equations, MockBadge, Poster, SLOW, SolverCard } from './hud'
+import { BankStatus, MockBadge, Poster, SLOW, SolverCard } from './hud'
 import { FireDemo, HeartDemo } from './HeartDemo'
 
 const ALL_TABS = ['Tsunami', 'Flood-risk map', 'Heart', 'Wildfire']
 const noFocus = (e: { preventDefault(): void }) => e.preventDefault() // keep focus off buttons so Space still drives the deck
 
-export function Demo() {
-  const live = useMode() === 'live'
-  const fire = useAsync(() => loadBank('fire'), []) // no wildfire bank: the tab is hidden and its build step shows the heart
-  const TABS = fire.value ? ALL_TABS : ALL_TABS.slice(0, 3), step = Math.min(useStep(), TABS.length - 1)
-  const [tab, setTab] = useState(step)
+/** One application's demo slide: `only` = its tabs (indices into ALL_TABS), one per build step. */
+export const demo = (only: number[]) => () => <Demo only={only} />
+
+function Demo({ only }: { only: number[] }) {
+  const live = useMode() === 'live', step = Math.min(useStep(), only.length - 1)
+  const [tab, setTab] = useState(only[step])
   const [backup, setBackup] = useState(false)
-  useEffect(() => setTab(step), [step])
+  useEffect(() => setTab(only[step]), [step]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="demo" data-no-nav>
       <div className="demo-bar">
         <span className="kicker">Live demo</span>
         <nav className="tabs">
-          {TABS.map((name, i) => live
-            ? <button key={name} aria-pressed={tab === i} onMouseDown={noFocus} onClick={() => setTab(i)}>{name}</button>
-            : <span key={name} aria-pressed={tab === i}>{name}</span>)}
+          {only.map(i => live
+            ? <button key={i} aria-pressed={tab === i} onMouseDown={noFocus} onClick={() => setTab(i)}>{ALL_TABS[i]}</button>
+            : <span key={i} aria-pressed={tab === i}>{ALL_TABS[i]}</span>)}
         </nav>
         {live && <button className="btn ghost" onMouseDown={noFocus} onClick={() => setBackup(true)}>Backup: play video</button>}
       </div>
       <div className="demo-view glass">
-        {!live ? <Poster label={TABS[tab]} tone={tab >= 2 ? 'ember' : 'sea'} /> : tab < 2 ? <TsunamiDemo risk={tab === 1} /> : tab === 2 ? <HeartDemo /> : <FireDemo />}
+        {!live ? <Poster label={ALL_TABS[tab]} tone={tab >= 2 ? 'ember' : 'sea'} /> : tab < 2 ? <TsunamiDemo risk={tab === 1} /> : tab === 2 ? <HeartDemo /> : <FireDemo />}
       </div>
       {backup && <Backup close={() => setBackup(false)} />}
     </div>
@@ -206,7 +207,6 @@ function TsunamiLive({ bank, risk }: { bank: TsunamiBank; risk: boolean }) {
         <>
           <div className="demo-title"><span className="kicker c-sea">Tsunami forecast</span><h3>Drag the epicentre</h3></div>
           <SolverCard t={t} run={run} who={who} className="corner" />
-          <Equations kind="tsunami" />
           <p className="demo-hint">Every forecast {ratio(t)}× faster than the simulator · {bank.scenarios.length} precomputed Simula forecasts · wave height exaggerated for visibility{sel ? '' : ' · loading…'}</p>
         </>
       ) : (
