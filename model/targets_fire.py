@@ -33,10 +33,13 @@ SPEC["frame_dt"] = SPEC["dt"] * SPEC["substeps"]
 _IGN = [("on", 0, 1), ("x", 0.15, 0.55), ("y", 0.2, 0.8), ("radius", 0.035, 0.06)]
 _BRK = [("on", 0, 1), ("x", 0, 1), ("y", 0, 1), ("angle", 0, np.pi), ("half_len", 0.1, 0.45), ("width", 0.015, 0.04)]
 RANGES = ([(f"ign{j}_{n}", lo, hi) for j in range(2) for n, lo, hi in _IGN]
-          + [("fuel_mean", 0.65, 1.0), ("fuel_contrast", 0.05, 0.25), ("fuel_corr", 0.04, 0.15)]
+          + [("fuel_mean", 0.72, 1.0), ("fuel_contrast", 0.05, 0.25), ("fuel_corr", 0.04, 0.15)]
           + [(f"brk{j}_{n}", lo, hi) for j in range(3) for n, lo, hi in _BRK]
           + [("lake_on", 0, 1), ("lake_x", 0, 1), ("lake_y", 0, 1), ("lake_radius", 0.05, 0.12)])
 KNOBS = [n for n, _, _ in RANGES]
+# fuel floor above the ~0.45 a front needs, so fires do not die out in sparse fuel: an extinct fire (u ~ 0 everywhere)
+# makes the per-frame relL2 of u blow up (v1 without the floor: 16% of test fires extinct, raw_slot0 mean ~1e2-1e3)
+FUEL_MIN = 0.65
 ON_P = {"ign0_on": 1.0, "ign1_on": 0.4, "brk0_on": 0.8, "brk1_on": 0.5, "brk2_on": 0.3, "lake_on": 0.4}
 
 _x = np.arange(N) / N
@@ -50,7 +53,7 @@ def _fuel(p, k):
     r = np.random.default_rng(zlib.crc32(np.asarray(p, np.float32).tobytes()))
     q = np.fft.fftfreq(N) * N
     g = np.fft.ifft2(np.fft.fft2(r.standard_normal((N, N))) * np.exp(-0.5 * (2 * np.pi * k["fuel_corr"]) ** 2 * (q[:, None] ** 2 + q ** 2))).real
-    return np.clip(k["fuel_mean"] + k["fuel_contrast"] * g / g.std(), 0, 1)
+    return np.clip(k["fuel_mean"] + k["fuel_contrast"] * g / g.std(), FUEL_MIN, 1)
 
 
 def make_ic(p):
@@ -69,7 +72,7 @@ def make_ic(p):
         g = lambda n: k[f"ign{j}_{n}"]
         if g("on") > 0.5:
             u = np.maximum(u, _step(g("radius") - np.hypot(_wrap(X - g("x")), _wrap(Y - g("y"))), 0.008))
-    return np.stack([u, f])
+    return np.stack([u, np.maximum(f, k["fuel_mean"] * u)])  # ignitions are on vegetated ground, never in a break or lake
 
 
 def make_ics(params):

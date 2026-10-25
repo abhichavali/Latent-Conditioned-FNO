@@ -211,6 +211,8 @@ def write_test(name, out, n=100, seed=2026):
         p, ic, st = sample(name, n, r)
         tr = simulate(name, ic, st)
         ok = np.isfinite(tr).all((1, 2, 3, 4))
+        if name == "fire":  # fires that burn through the horizon: an extinct one (u ~ 0) makes the per-frame relL2 blow up
+            ok &= (tr[:, 1:, 0].max((-2, -1)) > 0.1).all(1)
         P.append(p[ok]), U.append(tr[ok]), S.append(st[ok])
     P, U, S = (np.concatenate(x)[:n] for x in (P, U, S))
     s = spec(name)
