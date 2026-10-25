@@ -1,6 +1,6 @@
 # Simula: 2-minute video script
 
-About 320 words, brisk pace at a relaxed pace. Brackets are on-screen actions.
+About 320 words at a brisk pace. Brackets are on-screen actions.
 
 | Time | Slide | Say |
 |---|---|---|
