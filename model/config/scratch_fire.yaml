@@ -1,0 +1,3 @@
+base: scratch.yaml
+scratch:
+  out: /workspace/results/scratch_fire       # fire only, so its summary does not rewrite swe / ap json

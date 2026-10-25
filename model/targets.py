@@ -29,6 +29,7 @@ import demos  # noqa: E402
 import pde  # noqa: E402
 
 from data import canon  # noqa: E402
+import targets_fire  # noqa: E402
 
 # SWE in mixed units: horizontal length in km, time in ks, vertical length (eta, b) in m.  demos.SWE in SI has L = 4000
 # (log L 8.3 vs pretraining's 1.6-5.3), and pure km would push the eta IC std (1.4e-4 km) under adapter.normalize's
@@ -67,6 +68,8 @@ KNOBS = {k: [n for n, _, _ in v] for k, v in RANGES.items()}
 # probabilities of the on-flags (first source / front always on; as in baseline_FNO/data.py)
 ON_P = {"src0_on": 1.0, "src1_on": 0.5, "src0_sub_on": 0.6, "src1_sub_on": 0.6, "front0_on": 1.0, "front1_on": 0.5,
         "stim0_on": 2 / 3, "stim1_on": 1 / 3}
+SPECS["fire"], RANGES["fire"], KNOBS["fire"] = targets_fire.SPEC, targets_fire.RANGES, targets_fire.KNOBS  # wildfire
+ON_P.update(targets_fire.ON_P)
 
 
 def spec(name):
@@ -154,6 +157,8 @@ _COAST = {}
 
 def make_ics(name, params):
     """params (n, P) -> ics (n, nf, N, N), statics (n, S, N, N), float32 raw."""
+    if name == "fire":
+        return targets_fire.make_ics(params)
     N = SPECS[name]["N"]
     X, Y = _grid(N)
     if name == "swe":
