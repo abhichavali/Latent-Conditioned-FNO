@@ -42,7 +42,7 @@ encoder:
   logsig: [-4.0, 0.5]
 train:
   seed: 0
-  steps: 155000                           # 5.3 steps/s measured (width 96, 6 layers, remat) -> ~8.4 h
+  steps: 120000                           # 5.07 steps/s -> 6.6 h (140k no longer fit the 02:45 deadline and credit)
   lr: 3.0e-4                              # 5e-4 diverged (NaN from step ~2700)
   lr_end: 0.05
   warmup: 1000
@@ -60,4 +60,4 @@ train:
   val_batches: 8
   val_k: [0, 1, 2, 5, 16, 64]
   ckpt_minutes: 20
-  keep: 2
+  keep: 1                                 # 6.25 GB per checkpoint; the disk filled at keep 2 (19:02, run lost)
