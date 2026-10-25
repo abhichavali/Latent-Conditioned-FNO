@@ -6,10 +6,10 @@ jax_cache: /workspace/jaxcache
 data:
   roots:                                  # tag makes ids globally unique: A/eq_0012
     - {tag: A, path: /workspace/data/A}
-  batch: 8                                # (equation, IC window) pairs per step
+  batch: 16                               # (equation, IC window) pairs per step
   queries: 4                              # random query frames per pair
   eq_weight_power: 0.5                    # equation sampling weight = (unique train windows) ** power
-  workers: 8                              # loader threads (memory-mapped reads)
+  workers: 12                             # loader threads (memory-mapped reads)
   prefetch: 8                             # batches in flight
 split:
   seed: 0
@@ -34,7 +34,7 @@ encoder:
   logsig: [-4.0, 0.5]
 train:
   seed: 0
-  steps: 220000                           # ~13.5 steps/s on the RTX 5080 -> ~4.5 h
+  steps: 270000                           # ~4.5 h at batch 16 on the RTX 5090 (launch passes the measured --steps)
   lr: 5.0e-4
   lr_end: 0.05                            # cosine decay to lr * lr_end
   warmup: 1000
