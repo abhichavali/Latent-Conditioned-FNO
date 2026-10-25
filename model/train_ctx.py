@@ -3,12 +3,14 @@
 Per batch element: a training equation, k context windows C (k = 0 w.p. p0, else log-uniform on 1..K_max) and Q
 target windows T from other IC groups (train windows only, pretrain_AB's frozen splits).
   L = relL2(G_theta(target IC, t; z), target frames) + beta * KL(q(z | G, C u T) || q(z | G, C)),  z ~ q(z | G, C u T)
-beta = 0 for beta_warm of the steps, then linear ramp (beta_ramp) to beta.
+beta = beta * max(beta_floor, linear ramp over beta_ramp of the steps): never 0, so q(z | G, C) stays anchored
+(with a beta = 0 warm-up its sigma drifted freely, KL 7458 at step 2200).  Non-finite updates are skipped; a log window
+with only non-finite steps exits without a checkpoint (run.sh resumes from the last finite one).
 
   python train_ctx.py --config config/ctx.yaml [--steps N] [--set model.width=128 --set name=ctx_smoke]
 
 Validation (every val_minutes and at every start): fixed rehearsal (held-out structures) and val-IC batches, error with
-z = posterior mean of q(z | G, first k context windows) for k in val_k, plus persistence and k=8 with C u T.
+z = posterior mean of q(z | G, first k context windows) for k in val_k, plus persistence and k=16 with C u T.
 Run dir, checkpoints (params = (fno, context encoder)), resume and SIGTERM as in train.py.
 """
 
@@ -47,7 +49,7 @@ def build(cfg, key):
 def optimizer(cfg):
     t = cfg["train"]
     sched = optax.warmup_cosine_decay_schedule(0.0, t["lr"], t["warmup"], t["steps"], end_value=t["lr"] * t["lr_end"])
-    return optax.apply_if_finite(optax.chain(optax.clip_by_global_norm(t["clip"]), optax.adamw(sched, weight_decay=t["wd"])), 50)
+    return optax.apply_if_finite(optax.chain(optax.clip_by_global_norm(t["clip"]), optax.adamw(sched, weight_decay=t["wd"])), 10**9)  # never apply a non-finite update
 
 
 def flat(b):
@@ -217,20 +219,20 @@ def main():
             out.update({f"{name}/persistence/{k}": v for k, v in persist[name].items()})
             for k in t["val_k"]:
                 out.update({f"{name}/k{k}/{m}": v for m, v in run_eval(name, k).items()})
-            out.update({f"{name}/k8ct/{m}": v for m, v in run_eval(name, 8, ct=True).items()})
+            out.update({f"{name}/k16ct/{m}": v for m, v in run_eval(name, 16, ct=True).items()})
         return out
 
     stop = []
     signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
     base_key = jax.random.PRNGKey(t["seed"] + 1)
     total = t["steps"]
-    warm, ramp = int(t["beta_warm"] * total), max(int(t["beta_ramp"] * total), 1)
+    ramp = max(int(t["beta_ramp"] * total), 1)
     it = stream.iterate(step)
     acc, t_ck, t_log, s_log = [], time.time(), time.time(), step
     log({"event": "start", **validate()})
     t_val = time.time()
     while step < total:
-        beta = t["beta"] * float(np.clip((step - warm) / ramp, 0, 1))
+        beta = t["beta"] * max(t["beta_floor"], min(step / ramp, 1.0))
         b = jax.device_put(next(it))
         params, opt_state, aux = train_step(params, opt_state, b, Gd, jax.random.fold_in(base_key, step), jnp.float32(beta))
         acc.append(aux)
@@ -241,6 +243,9 @@ def main():
             rec["train/nonfinite"] = int(sum(not np.isfinite(x["loss"]) for x in m))
             rec.update({"sched/beta": beta, "steps_per_s": (step - s_log) / (time.time() - t_log)})
             acc, t_log, s_log = [], time.time(), step
+            if rec["train/nonfinite"] == len(m):
+                log({**rec, "event": "every step non-finite: exit without checkpoint"})
+                os._exit(3)
             if time.time() - t_val > 60 * t["val_minutes"] or step == total:
                 rec.update(validate())
                 t_val = time.time()

@@ -12,7 +12,7 @@ data:
   eqs: 8                                  # equations per step
   targets: 2                              # target windows per equation (Q); 8 x 2 x 4 queries = v1's 64 forwards
   queries: 4
-  k_max: 16                               # context windows
+  k_max: 64                               # context slots; per equation also capped by its windows outside the target groups
   p0: 0.2                                 # P(k = 0); else k log-uniform on 1..k_max
   eq_weight_power: 0.5
   workers: 12
@@ -43,18 +43,18 @@ encoder:
 train:
   seed: 0
   steps: 155000                           # 5.3 steps/s measured (width 96, 6 layers, remat) -> ~8.4 h
-  lr: 5.0e-4
+  lr: 3.0e-4                              # 5e-4 diverged (NaN from step ~2700)
   lr_end: 0.05
   warmup: 1000
   wd: 1.0e-4
   clip: 1.0
   rel_cap: 4.0
   beta: 1.0e-3                            # KL(q(z|G,C u T) || q(z|G,C)) weight (nats summed over dz)
-  beta_warm: 0.03                         # beta = 0 for this fraction of steps (the decoder learns to use z), then linear ramp
-  beta_ramp: 0.10
+  beta_floor: 0.05                        # beta never below beta_floor * beta (q(z|G,C) stays anchored)
+  beta_ramp: 0.10                         # linear ramp from 0 over this fraction of the steps
   log_every: 100
   val_minutes: 20
-  val_batches: 12
-  val_k: [0, 1, 2, 5, 8, 16]
+  val_batches: 8
+  val_k: [0, 1, 2, 5, 16, 64]
   ckpt_minutes: 20
   keep: 2

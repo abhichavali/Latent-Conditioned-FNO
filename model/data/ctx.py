@@ -71,9 +71,10 @@ def make_item(e, row, tw, cw, qs, cache, K):
     S = K + len(tw)
     cx = np.zeros((S, NFR, F_MAX, CTX_N, CTX_N), np.float16)
     cst = np.zeros((S, S_MAX, CTX_N, CTX_N), np.float16)
-    caux = np.zeros((S, AUX_DIM), np.float32)
+    caux = np.zeros((S, AUX_DIM), np.float32)  # filled below; nan_to_num as a guard
     for j, w in [(j, w) for j, w in enumerate(cw)] + [(K + j, w) for j, w in enumerate(tw)]:
         cx[j, :, : e.nf], cst[j, : e.ns], caux[j] = X[w], ST[w], AUX[w]
+    caux = np.nan_to_num(caux)
     cmask = np.arange(S) < len(cw)
     tg = [adapter.sample(e, row, int(w), q) for w, q in zip(tw, qs)]
     out = {k: np.stack([t[k] for t in tg]) for k in ("u0", "st", "pres", "aux", "y", "t")}

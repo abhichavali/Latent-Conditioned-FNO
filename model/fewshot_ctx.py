@@ -10,8 +10,8 @@ run: 20 rounds x 5 sims.  Round r: candidate pool exactly as active.py (Target.p
             of each); the picks, best score first, are simulated (targets.simulate) and join the context
   v1random  the 5 next sims of v1's A u B random run (its state.npz, in acquisition order): same sims as v1's curve
 Branches (test raw_slot0 etc. on the fixed 100-IC test set), at N in NS:
-  a  amortized: posterior mean of q(z | G, sims).  N > K_max: mean of the posterior means / sigmas over R random
-     K_max-subsets ("a"); "a_all" = all N in one pass (more context than in training)
+  a  amortized: posterior mean of q(z | G, all N sims) in one forward pass (N = 100: 400 sim tokens; training saw
+     at most k_max = 64)
   b  semi-amortized: (a), then z refined on the N sims (eval.make_fitter: whitened eps around q, |eps|^2 anchor,
      data weight = (sim, frame) pairs, as v1's particles; one particle)
   c  (b), then active.make_ft (v1 stage B: all weights, lr 5e-4, 300 steps per round warm-started, pull 1e-4) with
@@ -104,15 +104,9 @@ class Post:
                          jnp.asarray(np.arange(S) < n))
         return np.asarray(mu[0]), np.exp(np.asarray(ls[0]))
 
-    def q(self, n, rng, R=8):
-        """Posterior over the first n sims -> mu, sigma; n > K: average over R random K-subsets."""
-        if n <= self.K:
-            return self.one(range(n), self.K)
-        out = [self.one(sorted(rng.choice(n, self.K, replace=False)), self.K) for _ in range(R)]
-        return np.mean([m for m, _ in out], 0), np.mean([s for _, s in out], 0)
-
-    def q_all(self, n):
-        return self.one(range(n), int(np.ceil(max(n, 1) / 100) * 100))
+    def q(self, n, rng=None):
+        """Posterior over all of the first n sims, one pass (slots padded to a multiple of 16: few recompiles)."""
+        return self.one(range(n), max(16, int(np.ceil(n / 16)) * 16))
 
 
 def run(a):
@@ -165,8 +159,6 @@ def run(a):
         t0 = time.time()
         mu, sd = post.q(n, rng)
         rec = {"n_sims": n, "a": test(fno, mu), "sigma_mean": float(sd.mean())}
-        if n > post.K:
-            rec["a_all"] = test(fno, post.q_all(n)[0])
         data = data_of(n)
         zb, rec["b_fit_relL2"] = refine(mu, sd, data, n, rng)
         rec["b"], rec["b_shift_sigma"] = test(fno, zb), float(np.sqrt((((zb - mu) / sd) ** 2).mean()))
@@ -275,8 +267,8 @@ def rehearsal(a):
     for tag in roots:
         adapter.drop_nonfinite([e for e in eqs if e.gid.startswith(tag + "/")], f"{cfg['cache_dir']}/nonfinite_{tag}.json")
     cache = ctx.load_cache(eqs, cfg["ctx_cache"])
-    ks = (0, 1, 2, 5, 10)
-    items, Z = [], {k: [] for k in ks}
+    ks = (0, 1, 2, 5, 10, 16, 32, 64)  # k > available context windows: all of them (n_ctx in the json)
+    items, Z, n_ctx = [], {k: [] for k in ks}, []
     for e in eqs:
         ug = np.unique(e.groups)
         tg = set(rng.choice(ug, max(1, int(round(0.3 * len(ug)))), replace=False).tolist())
@@ -290,13 +282,14 @@ def rehearsal(a):
             mu, _ = post.q(min(k, len(cw)), rng)
             Z[k] += [mu] * len(tw)
         items += [(e, w, -1) for w in tw]
+        n_ctx.append(len(cw))
     s = ev.Set(items)
     modes = {f"k{k}": np.asarray(Z[k], np.float32)[None] for k in ks}
     modes["persistence"] = "persistence"
     res = ev.evaluate(fno, s, modes)
     out = a.out or f"/workspace/results/{rname(a.run, path)}"
     os.makedirs(out, exist_ok=True)
-    json.dump({"n_eq": len(eqs), "n_windows": len(items), "ckpt": path, "results": res}, open(f"{out}/rehearsal_kshot.json", "w"), indent=1)
+    json.dump({"n_eq": len(eqs), "n_windows": len(items), "n_ctx": n_ctx, "ckpt": path, "results": res}, open(f"{out}/rehearsal_kshot.json", "w"), indent=1)
     print(json.dumps(ev.brief(res)), flush=True)
 
 

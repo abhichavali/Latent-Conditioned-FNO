@@ -10,7 +10,7 @@ ContextEncoder: one transformer over
 No ordering embedding across simulations, so q is permutation invariant over C; masks select C (any subset).
 
 CtxFNO: v1's CondFNO input layout (C_IN, so eval.adapt_statics applies) with a wider conditioning MLP c -> per layer
-FiLM + bank mixture + a rank-r channel-mixing delta  h += A(c) (B(c) h) / sqrt(width).  FiLM, mixture and A start at
+FiLM + bank mixture + a rank-r channel-mixing delta  h += tanh A(c) (tanh B(c) h) / sqrt(width).  FiLM, mixture and A start at
 zero (plain FNO at init); B keeps its random init so A gets gradients.  remat: jax.checkpoint per layer.
 """
 
@@ -190,8 +190,8 @@ class CtxFNO(eqx.Module):
         for i, (s, w) in enumerate(zip(self.spec, self.skip)):
             def layer(h, m, s=s, w=w, i=i):
                 gam, bet, a = m[:W], m[W : 2 * W], m[2 * W : 2 * W + M]
-                A = m[2 * W + M : 2 * W + M + W * r].reshape(W, r)
-                B = m[2 * W + M + W * r :].reshape(r, W)
+                A = jnp.tanh(m[2 * W + M : 2 * W + M + W * r]).reshape(W, r)  # bounded factors: the product of two
+                B = jnp.tanh(m[2 * W + M + W * r :]).reshape(r, W)  # unbounded MLP outputs diverged (NaN at step 2700)
                 h = s(h, jax.nn.softmax(a)) + w(h) + jnp.einsum("or,rxy->oxy", A, jnp.einsum("rc,cxy->rxy", B, h)) / math.sqrt(W)
                 h = (1 + gam)[:, None, None] * h + bet[:, None, None]
                 return jax.nn.gelu(h) if i < last else h
