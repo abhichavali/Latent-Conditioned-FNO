@@ -145,9 +145,9 @@ def _moments(fno, b, Z, t):
 
 def predict(fno, inp, Z, t, c=None):
     """Yields (idx, mean, var) per chunk: physical units, fields padded to F_MAX.  Z (K, dz) shared by all ICs, or
-    (K, n, dz) per IC.  Chunks of c ICs (default: ~128 forwards per scan step); the last chunk is padded."""
+    (K, n, dz) per IC.  Chunks of c ICs (default: ~64 forwards per scan step, ~1 GB); the last chunk is padded."""
     n, t = len(inp["u0"]), np.asarray(t, np.float32)
-    c = c or max(1, 128 // len(t))
+    c = c or max(1, 64 // len(t))
     for i in range(0, n, c):
         j = np.arange(i, min(i + c, n))
         jj = np.pad(j, (0, c - len(j)), mode="edge")
@@ -208,7 +208,7 @@ class Set:
         return concat(ins), np.stack(ys), pres
 
 
-def evaluate(fno, s, modes, chunk=8):
+def evaluate(fno, s, modes, chunk=4):
     """modes {name: Z (K, n, dz) per item, or "persistence"} -> {name: summary}, over all items of Set s."""
     n = len(s.items)
     acc, pres = {m: [] for m in modes}, []
@@ -290,9 +290,10 @@ def make_fitter(fno, lr=0.05, cap=4.0):
     return fit
 
 
-def fit_data(inp, traj, pad=25):
+def fit_data(inp, traj, pad=100):
     """Inputs (prep of the ICs) + raw trajectories (n, frames, nf, N, N) -> device dict for the fitter, padded (by
-    repetition) to a multiple of pad sims so a growing data set recompiles rarely; "n" = the real count."""
+    repetition) to a multiple of pad sims (100 = the whole budget: one compile per run; a mid-run recompile on a full
+    GPU can fail to load its kernels); "n" = the real count."""
     n, fr, nf = traj.shape[:3]
     y = np.zeros((n, fr - 1, F_MAX, *traj.shape[-2:]), np.float32)
     y[:, :, :nf] = (traj[:, 1:] - inp["m"][:, None, :nf, None, None]) / inp["s"][:, None, :nf, None, None]
