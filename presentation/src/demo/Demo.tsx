@@ -9,11 +9,13 @@ import { Clip, etaMax, riskLayer, tsunami } from './engines'
 import { BankStatus, Equations, MockBadge, Poster, SLOW, SolverCard } from './hud'
 import { FireDemo, HeartDemo } from './HeartDemo'
 
-const TABS = ['Tsunami', 'Flood-risk map', 'Heart', 'Wildfire']
+const ALL_TABS = ['Tsunami', 'Flood-risk map', 'Heart', 'Wildfire']
 const noFocus = (e: { preventDefault(): void }) => e.preventDefault() // keep focus off buttons so Space still drives the deck
 
 export function Demo() {
-  const step = useStep(), live = useMode() === 'live'
+  const live = useMode() === 'live'
+  const fire = useAsync(() => loadBank('fire'), []) // no wildfire bank: the tab is hidden and its build step shows the heart
+  const TABS = fire.value ? ALL_TABS : ALL_TABS.slice(0, 3), step = Math.min(useStep(), TABS.length - 1)
   const [tab, setTab] = useState(step)
   const [backup, setBackup] = useState(false)
   useEffect(() => setTab(step), [step])
