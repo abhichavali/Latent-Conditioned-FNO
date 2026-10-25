@@ -25,6 +25,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import sys
 import time
 
@@ -403,14 +404,15 @@ def summary(a):
     import matplotlib.pyplot as plt
 
     key = a.metric
-    names = {"active": "pretrained + active", "random": "pretrained + random", "generic": "pretrained + generic prior",
-             "active_v2": "pretrained + active v2"}
-    colors = {"active": "#1b7f6b", "random": "#7aa6d6", "generic": "#e0a030", "active_v2": "#b04a8f", "scratch": "#555555"}
-    runs = {}  # (target, method) from <target>_<method> dirs; the longest known method suffix wins, else the last token
+    names = {"active_v2": "Simula (active v2)", "generic_v2": "active v2, generic prior", "active": "pretrained + active",
+             "random": "pretrained + random", "generic": "pretrained + generic prior"}
+    colors = {"active_v2": "#b04a8f", "generic_v2": "#d98cbf", "active": "#1b7f6b", "random": "#7aa6d6", "generic": "#e0a030",
+              "scratch": "#555555"}
+    runs = {}  # <target>_<method> dirs: the target is a known name (or reh-<tag>_eq_<id>), the method is the rest
     for d in sorted(glob.glob(f"{a.results}/active/*_*/history.jsonl")):
         b = os.path.basename(os.path.dirname(d))
-        m = next((m for m in sorted(names, key=len, reverse=True) if b.endswith("_" + m)), b.rsplit("_", 1)[1])
-        runs.setdefault(b[: -len(m) - 1], []).append(m)
+        mt = re.match(r"^(reh-[^_]+_eq_\d+|swe_m|swe|ap|fire)_(.+)$", b) or re.match(r"^([^_]+)_(.+)$", b)
+        runs.setdefault(mt.group(1), []).append(mt.group(2))
     tg = sorted(runs)
     tg = [t for t in tg if not t.startswith("reh-")] + [t for t in tg if t.startswith("reh-")]
     fig, axes = plt.subplots(1, len(tg), figsize=(4.6 * len(tg), 3.8), squeeze=False)
