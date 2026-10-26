@@ -9,3 +9,4 @@ runs/
 *.jsonl
 model/cache/
 model/**/tb/
+artifacts/

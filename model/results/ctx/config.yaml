@@ -1,0 +1,72 @@
+cache_dir: /workspace/runs/cache
+ctx_cache: /workspace/ctxcache
+data:
+  eq_weight_power: 0.5
+  eqs: 8
+  k_max: 64
+  p0: 0.2
+  prefetch: 6
+  queries: 4
+  roots:
+  - path: /workspace/data/A
+    tag: A
+  - path: /workspace/data/B
+    tag: B
+  targets: 2
+  workers: 12
+encoder:
+  agg_layers: 4
+  d: 256
+  heads: 8
+  hidden: 64
+  logsig:
+  - -4.0
+  - 0.5
+  rounds: 3
+  sim_layers: 2
+  sim_tokens: 4
+jax_cache: /workspace/jaxcache
+model:
+  banks: 4
+  cond_hidden: 512
+  dz: 128
+  head: 128
+  layers: 6
+  max_freq: 64
+  modes: 24
+  n_freq: 16
+  rank: 8
+  remat: true
+  width: 96
+name: ctx
+run_root: /workspace/runs
+split:
+  copy_from: /workspace/runs/pretrain_AB/splits.json
+train:
+  beta: 0.0
+  beta_delay: 0.05
+  beta_floor: 0.0
+  beta_ramp: 0.1
+  ckpt_minutes: 20
+  clip: 1.0
+  enc_freeze: 0.05
+  enc_lr: 0.1
+  g_drop: 0.5
+  keep: 1
+  log_every: 100
+  lr: 0.0003
+  lr_end: 0.05
+  rel_cap: 4.0
+  seed: 0
+  steps: 110000
+  val_batches: 8
+  val_k:
+  - 0
+  - 1
+  - 2
+  - 5
+  - 16
+  - 64
+  val_minutes: 20
+  warmup: 1000
+  wd: 0.0001

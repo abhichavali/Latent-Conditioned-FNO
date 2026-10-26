@@ -1,0 +1,107 @@
+[32mActivated conda/uv virtual environment at [36m/venv/main[0m
+02:35:32 evaluating /workspace/runs/ctx/ckpt/step_00110000.eqx
+[02:36:01] round 0 {'zero_shot': [1.8049, 1.8049, 1.2761]}
+[02:37:37] round 1 N 1 {'a': [1.2001, 1.2058, 1.0628], 'b': [1.1891, 1.1946, 1.0591]} 23s
+[02:37:37] round 1 N 2 {'a': [1.1464, 1.152, 1.0454], 'b': [1.1344, 1.1397, 1.0414]} 16s
+[02:37:37] round 1 N 5 {'a': [1.0463, 1.051, 1.0165], 'b': [1.032, 1.0361, 1.0122]} 16s
+[02:38:29] round 2 N 10 {'a': [1.0279, 1.0324, 1.0151], 'b': [1.0168, 1.0208, 1.0076]} 16s
+[02:39:06] round 3 N 15 {} 37s
+[02:39:43] round 4 N 20 {} 37s
+[02:40:50] round 5 N 25 {'a': [1.0204, 1.0244, 1.0153], 'b': [0.9941, 0.997, 1.002]} 16s
+[02:41:26] round 6 N 30 {} 37s
+[02:42:03] round 7 N 35 {} 37s
+[02:42:57] round 8 N 40 {} 54s
+[02:43:34] round 9 N 45 {} 37s
+[02:44:44] round 10 N 50 {'a': [1.022, 1.0259, 1.0164], 'b': [0.9816, 0.9837, 0.9944]} 33s
+[02:45:21] round 11 N 55 {} 37s
+[02:45:57] round 12 N 60 {} 37s
+[02:46:34] round 13 N 65 {} 37s
+[02:47:29] round 14 N 70 {} 55s
+[02:48:07] round 15 N 75 {} 37s
+[02:48:44] round 16 N 80 {} 38s
+[02:49:22] round 17 N 85 {} 38s
+[02:50:18] round 18 N 90 {} 55s
+[02:50:55] round 19 N 95 {} 38s
+[02:52:07] round 20 N 100 {'a': [1.0232, 1.0271, 1.0166], 'b': [0.9685, 0.97, 0.9897]} 34s
+/workspace/repo/model/eval.py:178: RuntimeWarning: Mean of empty slice
+  out = {"n": len(pres), "per_field_raw": np.nanmean(raw, (0, 1)).tolist()}
+[02:52:37] round 0 {'zero_shot': [2.8155, 1.073, 1.0534]}
+/workspace/repo/model/eval.py:178: RuntimeWarning: Mean of empty slice
+  out = {"n": len(pres), "per_field_raw": np.nanmean(raw, (0, 1)).tolist()}
+[02:54:14] round 1 N 1 {'a': [1.0171, 0.7442, 0.8055], 'b': [0.9215, 0.7582, 0.8105]} 23s
+[02:54:14] round 1 N 2 {'a': [0.9044, 0.7526, 0.7977], 'b': [0.8667, 0.7612, 0.8008]} 16s
+[02:54:14] round 1 N 5 {'a': [0.9124, 0.7669, 0.7974], 'b': [0.8917, 0.7336, 0.7853]} 16s
+[02:55:07] round 2 N 10 {'a': [0.9258, 0.7733, 0.8014], 'b': [0.8627, 0.7405, 0.7812]} 16s
+[02:55:45] round 3 N 15 {} 38s
+[02:56:23] round 4 N 20 {} 38s
+[02:57:31] round 5 N 25 {'a': [0.9945, 0.791, 0.8146], 'b': [0.881, 0.7037, 0.7515]} 16s
+[02:58:09] round 6 N 30 {} 38s
+[02:58:47] round 7 N 35 {} 38s
+[02:59:42] round 8 N 40 {} 55s
+[03:00:20] round 9 N 45 {} 38s
+[03:01:31] round 10 N 50 {'a': [1.0215, 0.7856, 0.8105], 'b': [0.8735, 0.6737, 0.733]} 33s
+[03:02:09] round 11 N 55 {} 38s
+[03:02:48] round 12 N 60 {} 38s
+[03:03:26] round 13 N 65 {} 38s
+[03:04:21] round 14 N 70 {} 55s
+[03:05:00] round 15 N 75 {} 38s
+[03:05:38] round 16 N 80 {} 38s
+[03:06:16] round 17 N 85 {} 38s
+[03:07:11] round 18 N 90 {} 55s
+[03:07:50] round 19 N 95 {} 38s
+[03:09:01] round 20 N 100 {'a': [1.0565, 0.7941, 0.8162], 'b': [0.9592, 0.6633, 0.7195]} 33s
+/workspace/repo/model/eval.py:178: RuntimeWarning: Mean of empty slice
+  out = {"n": len(pres), "per_field_raw": np.nanmean(raw, (0, 1)).tolist()}
+[03:09:30] round 0 {'zero_shot': [0.9668, 0.9825, 0.8758]}
+/workspace/repo/model/eval.py:178: RuntimeWarning: Mean of empty slice
+  out = {"n": len(pres), "per_field_raw": np.nanmean(raw, (0, 1)).tolist()}
+[03:11:07] round 1 N 1 {'a': [0.9355, 0.9507, 0.8678], 'b': [0.9322, 0.9473, 0.8647]} 23s
+[03:11:07] round 1 N 2 {'a': [0.9268, 0.9418, 0.8551], 'b': [0.9204, 0.9353, 0.8496]} 15s
+[03:11:07] round 1 N 5 {'a': [0.9083, 0.923, 0.8464], 'b': [0.8864, 0.9007, 0.8216]} 15s
+[03:12:01] round 2 N 10 {'a': [0.8846, 0.8988, 0.8224], 'b': [0.8682, 0.8821, 0.7824]} 16s
+[03:12:39] round 3 N 15 {} 38s
+[03:13:17] round 4 N 20 {} 38s
+[03:14:25] round 5 N 25 {'a': [0.8711, 0.885, 0.8179], 'b': [0.8492, 0.8628, 0.7542]} 16s
+[03:15:03] round 6 N 30 {} 38s
+[03:15:42] round 7 N 35 {} 38s
+[03:16:37] round 8 N 40 {} 56s
+[03:17:16] round 9 N 45 {} 38s
+[03:18:27] round 10 N 50 {'a': [0.8676, 0.8815, 0.8182], 'b': [0.8373, 0.8507, 0.7301]} 33s
+[03:19:05] round 11 N 55 {} 38s
+[03:19:44] round 12 N 60 {} 38s
+[03:20:22] round 13 N 65 {} 38s
+[03:21:18] round 14 N 70 {} 56s
+[03:21:56] round 15 N 75 {} 38s
+[03:22:35] round 16 N 80 {} 38s
+[03:23:13] round 17 N 85 {} 38s
+[03:24:09] round 18 N 90 {} 56s
+[03:24:48] round 19 N 95 {} 38s
+[03:25:59] round 20 N 100 {'a': [0.8628, 0.8766, 0.8201], 'b': [0.7951, 0.8078, 0.6846]} 33s
+{"k0": [24090739241.8637, 0.4476, 0.5118], "k1": [18532647928.8227, 0.3831, 0.4551], "k2": [20139161244.4981, 0.352, 0.4341], "k5": [32319864135.2063, 0.311, 0.4051], "k10": [28122946820.5711, 0.2965, 0.3939], "k16": [32150194882.2572, 0.2946, 0.3909], "k32": [29111076452.9311, 0.2915, 0.3887], "k64": [29111076452.9296, 0.2918, 0.3889], "persistence": [1.4806, 1.3178, 1.3182]}
+{"swe": {"v1_random": [8.183, 0.753, 0.644, 0.568, 0.542, 0.489, 0.46, 0.441, 0.416, 0.409, 0.391, 0.377, 0.375, 0.353, 0.351, 0.34, 0.344, 0.326, 0.321, 0.323, 0.31], "v1_active": [8.183, 0.769, 0.641, 0.612, 0.541, 0.52, 0.502, 0.487, 0.468, 0.459, 0.438, 0.429, 0.411, 0.392, 0.377, 0.37, 0.376, 0.355, 0.348, 0.342, 0.344], "ctx_activeab_semi": [1.805, 1.189, 1.134, 1.032, 1.017, 0.994, 0.982, 0.968], "ctx_activeab_amortized": [1.805, 1.2, 1.146, 1.046, 1.028, 1.02, 1.022, 1.023]}, "ap": {"v1_random": [2.242, 0.899, 0.75, 0.809, 0.922, 0.947, 0.959, 0.923, 0.877, 0.876, 0.848, 0.846, 0.797, 0.806, 0.846, 0.776, 0.853, 0.846, 0.794, 0.739, 0.755], "v1_active": [2.242, 1.107, 0.915, 0.883, 0.844, 0.799, 0.816, 0.768, 0.758, 0.807, 0.783, 0.739, 0.653, 0.668, 0.653, 0.638, 0.771, 0.627, 0.654, 0.602, 0.654], "ctx_activeab_semi": [2.816, 0.921, 0.867, 0.892, 0.863, 0.881, 0.873, 0.959], "ctx_activeab_amortized": [2.816, 1.017, 0.904, 0.912, 0.926, 0.994, 1.022, 1.056]}, "fire": {"v1_random": [1.711, 0.693, 0.653, 0.629, 0.61, 0.594, 0.592, 0.596, 0.565, 0.564, 0.558, 0.55, 0.54, 0.529, 0.53, 0.524, 0.507, 0.5, 0.51, 0.503, 0.498], "v1_active": [1.711, 0.788, 0.707, 0.701, 0.677, 0.657, 0.667, 0.672, 0.62, 0.572, 0.535, 0.524, 0.512, 0.51, 0.504, 0.503, 0.492, 0.495, 0.496, 0.495, 0.491], "ctx_activeab_semi": [0.967, 0.932, 0.92, 0.886, 0.868, 0.849, 0.837, 0.795], "ctx_activeab_amortized": [0.967, 0.936, 0.927, 0.908, 0.885, 0.871, 0.868, 0.863]}}
+[03:35:21] round 0 {'zero_shot': [1.805, 1.805, 1.2762]}
+W1026 03:37:26.188347   72325 bfc_allocator.cc:743] Allocator (GPU_0_bfc) ran out of memory trying to allocate 162.00MiB (rounded to 169869312) from the upper end requested by op 
+If this is caused by memory fragmentation, the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' may improve the situation.
+Current allocation summary follows.
+W1026 03:37:26.188955   72325 bfc_allocator.cc:754] ****************************************************************************************************
+Traceback (most recent call last):
+  File "/workspace/repo/model/fewshot_ctx.py", line 380, in <module>
+    main()
+  File "/workspace/repo/model/fewshot_ctx.py", line 376, in main
+    {"run": run, "rehearsal": rehearsal, "summary": summary}[a.cmd](a)
+  File "/workspace/repo/model/fewshot_ctx.py", line 224, in run
+    rec, *_ = branches(n, rng)
+              ^^^^^^^^^^^^^^^^
+  File "/workspace/repo/model/fewshot_ctx.py", line 169, in branches
+    w, ost, rec["c_train_rel"] = finetune(w, ost, data, zb, rng)
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/repo/model/fewshot_ctx.py", line 155, in finetune
+    w, ost, l = ft_step(w, ost, w0, frozen, d, si, qi, Z)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/venv/main/lib/python3.12/site-packages/equinox/_jit.py", line 209, in __call__
+    return _call(self, False, args, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/venv/main/lib/python3.12/site-packages/equinox/_jit.py", line 271, in _call
+    marker.block_until_ready()
+jax.errors.JaxRuntimeError: RESOURCE_EXHAUSTED: Out of memory while trying to allocate 162.00MiB with allocator GPU_0_bfc on device 0. [executable_name='jit_step'] [tf-allocator-allocation-error='']
+03:37:26 failed (1): run --target swe --method active --out /workspace/results/ctx/active/swe_active
