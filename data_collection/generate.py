@@ -342,6 +342,7 @@ def main():
     ap.add_argument("--windows", type=int, default=2, help="consecutive 14-step windows simulated per IC")
     ap.add_argument("--target", type=float, nargs=2, default=[TARGET, TARGET],
                     help="log-uniform range of the per-frame change (sets each equation's frame interval)")
+    ap.add_argument("--nf", type=int, nargs="+", default=[2, 3], help="field counts to generate, in this order")
     ap.add_argument("--permute", type=float, default=0.0, help="probability of shuffling field labels")
     ap.add_argument("--id-offset", type=int, default=0, help="first equation id; lets several GPUs share --out")
     ap.add_argument("--supplement", help="existing dataset dir: add --extra windows per equation, see top")
@@ -372,7 +373,7 @@ def main():
             e["cand"], e["target"] = c, float(np.exp(rc.uniform(*np.log(args.target))))
             e["perm"] = list(rc.permutation(e["n"]) if rc.random() < args.permute else range(e["n"]))
         st["next_cand"] = c0 + args.cand
-        for nf in (2, 3):
+        for nf in args.nf:
             if written >= args.n:
                 break
             sub = [e for e in es if e["nf"] == nf]

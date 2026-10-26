@@ -1,0 +1,24 @@
+17:35:57 waiting for /workspace/runs/ctx/ckpt/step_00110000.eqx
+17:37:57 waiting for /workspace/runs/ctx/ckpt/step_00110000.eqx
+17:39:57 waiting for /workspace/runs/ctx/ckpt/step_00110000.eqx
+17:41:57 waiting for /workspace/runs/ctx/ckpt/step_00110000.eqx
+ctx cache: 12 built, 12 total
+/workspace/repo/model/eval.py:178: RuntimeWarning: Mean of empty slice
+  out = {"n": len(pres), "per_field_raw": np.nanmean(raw, (0, 1)).tolist()}
+C_eq_0001 {"k0": [0.1949], "k1": [0.1229], "k2": [0.1092], "k5": [0.0924], "k10": [0.0923], "k16": [0.0937], "k32": [0.0915], "k64": [0.0936], "persistence": [0.8214]}
+E1026 17:45:12.367433   11042 cuda_timer.cc:88] Delay kernel timed out: measured time has sub-optimal accuracy. There may be a missing warmup execution, please investigate in Nsight Systems.
+C_eq_0002 {"k0": [0.401], "k1": [0.3365], "k2": [0.318], "k5": [0.3393], "k10": [0.2983], "k16": [0.2807], "k32": [0.2856], "k64": [0.2711], "persistence": [1.0935]}
+C_eq_0003 {"k0": [0.2915], "k1": [0.1887], "k2": [0.1764], "k5": [0.1656], "k10": [0.1584], "k16": [0.1647], "k32": [0.1733], "k64": [0.1805], "persistence": [0.5393]}
+C_eq_0004 {"k0": [0.5803], "k1": [0.6981], "k2": [0.4241], "k5": [0.3959], "k10": [0.4058], "k16": [0.4078], "k32": [0.4072], "k64": [0.3905], "persistence": [0.6594]}
+C_eq_0005 {"k0": [0.2738], "k1": [0.2783], "k2": [0.2318], "k5": [0.2231], "k10": [0.2147], "k16": [0.2497], "k32": [0.2486], "k64": [0.2353], "persistence": [0.5689]}
+C_eq_0100 {"k0": [0.304], "k1": [0.2102], "k2": [0.2101], "k5": [0.2004], "k10": [0.181], "k16": [0.1749], "k32": [0.1753], "k64": [0.172], "persistence": [0.2599]}
+C_eq_0101 {"k0": [0.3723], "k1": [0.2795], "k2": [0.3016], "k5": [0.2257], "k10": [0.2126], "k16": [0.2117], "k32": [0.225], "k64": [0.2271], "persistence": [0.9587]}
+C_eq_0102 {"k0": [0.531], "k1": [0.4733], "k2": [0.4764], "k5": [0.4658], "k10": [0.4609], "k16": [0.4647], "k32": [0.4624], "k64": [0.4608], "persistence": [0.856]}
+E1026 17:47:06.467305   11144 cuda_timer.cc:88] Delay kernel timed out: measured time has sub-optimal accuracy. There may be a missing warmup execution, please investigate in Nsight Systems.
+C_eq_0103 {"k0": [0.3906], "k1": [0.391], "k2": [0.4231], "k5": [0.3639], "k10": [0.3605], "k16": [0.3713], "k32": [0.3661], "k64": [0.3629], "persistence": [0.6897]}
+C_eq_0104 {"k0": [0.8231], "k1": [0.8324], "k2": [0.8961], "k5": [1.0611], "k10": [1.1019], "k16": [0.9082], "k32": [0.8421], "k64": [0.8733], "persistence": [0.8519]}
+17:47:46 ctx done
+20:40:44 scratch done
+wrote /workspace/results/scratch_vs_ctx/scratch_vs_ctx.png
+{"equations": 10, "ctx": {"0": 0.416, "1": 0.381, "2": 0.357, "5": 0.353, "10": 0.349, "16": 0.333, "32": 0.328, "64": 0.327}, "scratch": {"8": 0.907, "16": 0.61, "32": 0.521, "64": 0.429, "128": 0.397}, "fewer": {"0": [83.4, "="], "1": [128.0, ">"], "2": [128.0, ">"], "5": [128.0, ">"], "16": [128.0, ">"], "64": [128.0, ">"]}}
+20:40:46 queue done

@@ -3,6 +3,7 @@
   python fewshot_ctx.py run --run /workspace/runs/ctx --ckpt CK --target swe|ap|fire --method active|v1random
   python fewshot_ctx.py rehearsal --run /workspace/runs/ctx --ckpt CK
   python fewshot_ctx.py summary --results /workspace/results/ctx_s<step>
+  python fewshot_ctx.py fresh --run /workspace/runs/ctx --ckpt CK --split split.json --out DIR   # fresh equations
 
 run: 20 rounds x 5 sims.  Round r: candidate pool exactly as active.py (Target.pool with seed (seed, r), 2000), then
   active    S samples z ~ q(z | G, sims so far) (round 1: the zero-shot q(z | G)); score = active.score (per-field
@@ -298,6 +299,34 @@ def rehearsal(a):
     print(json.dumps(ev.brief(res)), flush=True)
 
 
+def fresh(a):
+    """k-shot on fresh equations (split.json from scratch_vs_ctx.py split): per equation, context = the first k of its
+    train windows (fixed order; = the scratch baseline's first N), tested on its test windows (IC groups disjoint from
+    every train window).  One ev.evaluate per equation -> <out>/ctx_kshot.json {name: {k<k>: summary, persistence}}."""
+    from data import adapter, canon, ctx
+
+    sp = json.load(open(a.split))
+    ctx.build_cache([{"tag": sp["tag"], "path": sp["data"]}], a.ctx_cache, 8)  # numpy workers: fork before JAX starts
+    import eval as ev
+
+    cfg, (fno, enc), path = load(a.run, a.ckpt)
+    ks = (0, 1, 2, 5, 10, 16, 32, 64)
+    res = {"ckpt": path, "ks": ks, "eqs": {}}
+    for x in sp["eqs"]:
+        e = adapter.Eq(sp["tag"], x["dir"])
+        cw = x["train"][: max(ks)]
+        pres = np.zeros(5, np.float32)
+        pres[: e.nf], pres[3 : 3 + e.ns] = 1, 1
+        post = Post(enc, canon.graph(e.spec), e.T, e.L, pres, cfg["data"]["k_max"])
+        post.add_cached(*ctx.load_cache([e], a.ctx_cache)[e.gid], cw)
+        n = len(x["test"])
+        modes = {f"k{k}": np.broadcast_to(post.q(min(k, len(cw)))[0], (1, n, cfg["model"]["dz"])).astype(np.float32) for k in ks}
+        modes["persistence"] = "persistence"
+        res["eqs"][x["name"]] = ev.evaluate(fno, ev.Set([(e, w, -1) for w in x["test"]]), modes)
+        print(x["name"], json.dumps(ev.brief(res["eqs"][x["name"]], ("rel_slot0",))), flush=True)
+    json.dump(res, open(f"{a.out}/ctx_kshot.json", "w"), indent=1)
+
+
 def summary(a):
     """deck_raw_slot0.json (v1 deck schema) + headline plot: ctx branches next to v1 (A u B finals) and scratch."""
     import matplotlib
@@ -347,7 +376,9 @@ def summary(a):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["run", "rehearsal", "summary"])
+    ap.add_argument("cmd", choices=["run", "rehearsal", "summary", "fresh"])
+    ap.add_argument("--split", help="fresh: split.json")
+    ap.add_argument("--ctx_cache", default="/workspace/ctxcache")
     ap.add_argument("--run", default="/workspace/runs/ctx")
     ap.add_argument("--ckpt")
     ap.add_argument("--out")
@@ -373,7 +404,7 @@ def main():
     ap.add_argument("--metric", default="raw_slot0")
     ap.add_argument("--v1_deck", default=f"{V1}/deck_raw_slot0.json")
     a = ap.parse_args()
-    {"run": run, "rehearsal": rehearsal, "summary": summary}[a.cmd](a)
+    {"run": run, "rehearsal": rehearsal, "summary": summary, "fresh": fresh}[a.cmd](a)
 
 
 if __name__ == "__main__":

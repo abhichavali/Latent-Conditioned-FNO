@@ -7,6 +7,7 @@ encoder.  Settings: config/scratch.yaml (scratch: section; optimizer, batch, que
   python baselines.py gen     --config config/scratch.yaml [--only swe ap]   # 512 training sims per target
   python baselines.py sweep   --config config/scratch.yaml --target ap [--sizes 8 16] [--seeds 0]
   python baselines.py summary --config config/scratch.yaml                   # {swe,ap}.json, meta.json, plot
+  python baselines.py eq      --config config/scratch.yaml --split S --out O [--worker i --workers n]   # see eq_sweep
 
 Data: <out>/data/{swe,ap}_train/ in the test-set layout (targets.write_test, seed data_seed): spec.json, u.npy,
 static.npy, params.npy (knobs).  Runs: <out>/runs/<target>_N<N>_s<seed>.json + .npz (per-term test errors) when
@@ -52,12 +53,12 @@ KEYS = ("u0", "st", "pres", "aux", "y", "m", "s")
 UNITS = ("fields", "static", "L", "frame_dt", "frames", "rhs")  # train and test data must agree on these
 
 
-def load(name, d):
-    """Every trajectory of a dataset dir as model inputs: u0 st pres aux (n, ...), y (n, frames - 1, F_MAX, N, N),
+def load(name, d, windows=None):
+    """Every trajectory (or those of `windows`, in that order) of a dataset dir as model inputs: u0 st pres aux (n, ...), y (n, frames - 1, F_MAX, N, N),
     m s (n, nf) normalization; logT, logL scalars; plus the Eq."""
     e = adapter.Eq(name.upper(), d)
     items = []
-    for w in e.windows:
+    for w in e.windows if windows is None else windows:
         raw = e.frames_raw(w, np.arange(e.frames))
         items.append(adapter.normalize(raw[0], raw[1:], e.statics(w)))
     D = {k: np.stack([it[k] for it in items]) for k in KEYS}
@@ -217,6 +218,25 @@ def sweep(cfg, name, sizes, seeds):
                 run(cfg, name, D, T, N, seed)
 
 
+def eq_sweep(cfg, split, worker, workers, deadline):
+    """Scratch on single dataset-format equations (split.json from scratch_vs_ctx.py split): run (eq, N, seed) trains
+    on the first N of the equation's train windows (its nested prefixes, val held out of those N as above) and is
+    tested on its test windows (IC groups disjoint from all train windows), the windows fewshot_ctx.py fresh uses.
+    Jobs round-robin over `workers` processes; none starts after `deadline` (unix time)."""
+    sp = json.load(open(split))
+    jobs = [(x, N, s) for sizes, s in sp["scratch_phases"] for x in sp["eqs"] for N in sizes]
+    cur = None
+    for x, N, s in jobs[worker::workers]:
+        if time.time() > deadline:
+            print("deadline: no new runs", flush=True)
+            return
+        if cur != x["name"]:
+            D, _ = load(x["name"], x["dir"], x["train"])
+            T, _ = load(x["name"], x["dir"], x["test"])
+            cur = x["name"]
+        run(cfg, x["name"], D, T, N, s)
+
+
 def summary(cfg):
     sc = cfg["scratch"]
     out, meta = sc["out"], {"targets": {}}
@@ -288,7 +308,12 @@ def plot(out, meta):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["gen", "sweep", "summary"])
+    ap.add_argument("cmd", choices=["gen", "sweep", "summary", "eq"])
+    ap.add_argument("--split", help="eq: split.json")
+    ap.add_argument("--out", help="eq: overrides scratch.out")
+    ap.add_argument("--worker", type=int, default=0)
+    ap.add_argument("--workers", type=int, default=1)
+    ap.add_argument("--deadline", type=float, default=float("inf"), help="eq: unix time after which no run starts")
     ap.add_argument("--config", default="config/scratch.yaml")
     ap.add_argument("--only", nargs="+", default=["swe", "ap"])
     ap.add_argument("--target", choices=list(targets.SPECS))
@@ -304,6 +329,10 @@ def main():
             d = f"{sc['out']}/data/{n}_train"
             if not os.path.exists(f"{d}/spec.json"):  # write_test writes spec.json last
                 targets.write_test(n, d, n=sc["n_sims"], seed=sc["data_seed"])
+    elif a.cmd == "eq":
+        sc["out"] = a.out or sc["out"]
+        os.makedirs(f"{sc['out']}/runs", exist_ok=True)
+        eq_sweep(cfg, a.split, a.worker, a.workers, a.deadline)
     elif a.cmd == "sweep":
         sweep(cfg, a.target, a.sizes or sc["sizes"], a.seeds or sc["seeds"])
     else:
