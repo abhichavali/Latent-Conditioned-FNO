@@ -12,7 +12,7 @@ run: 20 rounds x 5 sims.  Round r: candidate pool exactly as active.py (Target.p
 Branches (test raw_slot0 etc. on the fixed 100-IC test set), at N in NS:
   a  amortized: posterior mean of q(z | G, all N sims) in one forward pass (N = 100: 400 sim tokens; training saw
      at most k_max = 64)
-  b  semi-amortized: (a), then z refined on the N sims (eval.make_fitter: whitened eps around q, |eps|^2 anchor,
+  b  semi-amortized: (a), then z refined on the N sims (eval.make_fitter: z = mu + b_sigma eps, |eps|^2 anchor,
      data weight = (sim, frame) pairs, as v1's particles; one particle)
   c  (b), then active.make_ft (v1 stage B: all weights, lr 5e-4, 300 steps per round warm-started, pull 1e-4) with
      z = z_b fixed.  The chain runs every round (5, 10, ..., 100); N = 1, 2 are side branches from the pretrained
@@ -140,7 +140,9 @@ def run(a):
         return ev.fit_data(ev.prep(np.stack(acq["ics"][:n]), stt, p.T, p.L), np.stack(acq["traj"][:n]))
 
     def refine(mu, sd, data, n, rng):
-        prior = {"mu": mu.astype(np.float32), "L": np.diag(sd).astype(np.float32)}
+        # raw-space refinement: z = mu + b_sigma * eps, anchor |z - mu|^2 / b_sigma^2.  Not the posterior sd: with
+        # beta = 0 it sits at its floor (~0.02) and the whitened fit could not move z ((b) = (a) to 4 decimals)
+        prior = {"mu": mu.astype(np.float32), "L": (a.b_sigma * np.eye(len(mu))).astype(np.float32)}
         eps, dl = fit(np.zeros((1, len(mu)), np.float32), prior, data, a.b_steps, a.b_M, rng, float(n * (p.frames - 1)), 1.0)
         return ev.draw(prior, eps)[0], float(dl.mean())
 
@@ -161,7 +163,7 @@ def run(a):
         rec = {"n_sims": n, "a": test(fno, mu), "sigma_mean": float(sd.mean())}
         data = data_of(n)
         zb, rec["b_fit_relL2"] = refine(mu, sd, data, n, rng)
-        rec["b"], rec["b_shift_sigma"] = test(fno, zb), float(np.sqrt((((zb - mu) / sd) ** 2).mean()))
+        rec["b"], rec["b_shift_sigma"] = test(fno, zb), float(np.sqrt((((zb - mu) / a.b_sigma) ** 2).mean()))
         if not a.skip_c:
             w, ost = (w0, ft_opt.init(w0)) if w is None else (w, ost)
             w, ost, rec["c_train_rel"] = finetune(w, ost, data, zb, rng)
@@ -360,6 +362,7 @@ def main():
     ap.add_argument("--b_steps", type=int, default=200)
     ap.add_argument("--b_M", type=int, default=16)
     ap.add_argument("--b_lr", type=float, default=0.05)
+    ap.add_argument("--b_sigma", type=float, default=0.44, help="(b) anchor scale: across-equation std of the k = 0 mean (train/zstd)")
     ap.add_argument("--ft_steps", type=int, default=300)
     ap.add_argument("--skip_c", action="store_true", help="branches (a), (b) only (no 515M fine-tune)")
     ap.add_argument("--ft_batch", type=int, default=16)
