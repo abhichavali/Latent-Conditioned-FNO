@@ -162,10 +162,10 @@ def run(a):
         data = data_of(n)
         zb, rec["b_fit_relL2"] = refine(mu, sd, data, n, rng)
         rec["b"], rec["b_shift_sigma"] = test(fno, zb), float(np.sqrt((((zb - mu) / sd) ** 2).mean()))
-        side = w is None
-        w, ost = (w0, ft_opt.init(w0)) if side else (w, ost)
-        w, ost, rec["c_train_rel"] = finetune(w, ost, data, zb, rng)
-        rec["c"] = test(eqx.combine(w, frozen), zb)
+        if not a.skip_c:
+            w, ost = (w0, ft_opt.init(w0)) if w is None else (w, ost)
+            w, ost, rec["c_train_rel"] = finetune(w, ost, data, zb, rng)
+            rec["c"] = test(eqx.combine(w, frozen), zb)
         rec["time_s"] = time.time() - t0
         return rec, w, ost, zb, data
 
@@ -174,15 +174,15 @@ def run(a):
         r0 = int(st["round"]) + 1
         acq = {k: list(st[k]) for k in ("ics", "st", "traj", "id")}
         post.add(np.stack(acq["traj"]), None if acq["st"][0] is None else np.stack(acq["st"]))
-        w = eqx.tree_deserialise_leaves(f"{out}/ft.eqx", w0)
-        ost = ft_opt.init(w)
+        w = w0 if a.skip_c else eqx.tree_deserialise_leaves(f"{out}/ft.eqx", w0)
+        ost = None if a.skip_c else ft_opt.init(w)
         log(f"resumed at round {r0}, {len(acq['traj'])} sims")
     else:
         r0, acq, w = 1, {"ics": [], "st": [], "traj": [], "id": []}, w0
-        ost = ft_opt.init(w0)
+        ost = None if a.skip_c else ft_opt.init(w0)
         mu, sd = post.q(0, None)
         e0 = test(fno, mu)
-        rec = {"round": 0, "n_sims": 0, "a": e0, "b": e0, "c": e0, "sigma_mean": float(sd.mean()), "ckpt": path,
+        rec = {"round": 0, "n_sims": 0, "a": e0, "b": e0, **({} if a.skip_c else {"c": e0}), "sigma_mean": float(sd.mean()), "ckpt": path,
                "target": a.target, "method": a.method, "args": vars(a)}
         open(hist, "w").write(json.dumps(rec) + "\n")
         log("round 0", ev.brief({"zero_shot": e0}))
@@ -223,6 +223,8 @@ def run(a):
                     recs.append({"round": 1, "sub": True, **rec})
         if r in EVAL_ROUNDS or r == a.rounds:
             rec, w, ost, zb, _ = branches(N, rng, w, ost)
+        elif a.skip_c:
+            rec = {"n_sims": N}
         else:  # chain only: (b) for z, then the fine-tuning round
             mu, sd = post.q(N, rng)
             data = data_of(N)
@@ -233,8 +235,9 @@ def run(a):
                    picked_scores=None if sc is None else [float(sc[k]) for k in pick],
                    pool_score_median=None if sc is None else float(np.median(sc)))
         recs.append(rec)
-        eqx.tree_serialise_leaves(f"{out}/ft.tmp.eqx", w)
-        os.replace(f"{out}/ft.tmp.eqx", f"{out}/ft.eqx")
+        if not a.skip_c:
+            eqx.tree_serialise_leaves(f"{out}/ft.tmp.eqx", w)
+            os.replace(f"{out}/ft.tmp.eqx", f"{out}/ft.eqx")
         st = {"round": r, "traj": np.stack(acq["traj"]), "ics": np.stack(acq["ics"]), "id": np.stack(acq["id"]),
               "st": np.array(acq["st"], dtype=object) if acq["st"][0] is None else np.stack(acq["st"])}
         np.savez(sf + ".tmp.npz", **st)
@@ -358,6 +361,7 @@ def main():
     ap.add_argument("--b_M", type=int, default=16)
     ap.add_argument("--b_lr", type=float, default=0.05)
     ap.add_argument("--ft_steps", type=int, default=300)
+    ap.add_argument("--skip_c", action="store_true", help="branches (a), (b) only (no 515M fine-tune)")
     ap.add_argument("--ft_batch", type=int, default=16)
     ap.add_argument("--ft_lr", type=float, default=5e-4)
     ap.add_argument("--ft_pull", type=float, default=1e-4)

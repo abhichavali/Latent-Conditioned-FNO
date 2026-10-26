@@ -256,7 +256,8 @@ def make_fitter(fno, lr=0.05, cap=4.0):
     adam = optax.adam(lr)
 
     @eqx.filter_jit
-    def step(eps, ost, data, si, qi, mu, L, anchor, w_data, w_prior):
+    def step(fno, eps, ost, data, si, qi, mu, L, anchor, w_data, w_prior):  # fno an argument: closed over, its weights
+        # become jit constants (2 GB for v3's 515M FNO; the executable then OOMs at load)
         def loss(eps):
             z = mu + eps @ L.T
 
@@ -284,7 +285,7 @@ def make_fitter(fno, lr=0.05, cap=4.0):
         mu, L = jnp.asarray(prior["mu"]), jnp.asarray(prior["L"])
         for _ in range(steps):
             si, qi = rng.integers(0, n, (len(eps), M)), rng.integers(0, Q, (len(eps), M))
-            eps, ost, d = step(eps, ost, data, jnp.asarray(si), jnp.asarray(qi), mu, L, anchor, jnp.float32(w_data),
+            eps, ost, d = step(fno, eps, ost, data, jnp.asarray(si), jnp.asarray(qi), mu, L, anchor, jnp.float32(w_data),
                                jnp.float32(w_prior))
         return np.asarray(eps), np.asarray(d)
 
