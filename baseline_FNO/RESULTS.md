@@ -20,7 +20,6 @@ No prior, no active learning: a plain FNO2d (4 Fourier layers, width 64, 16 mode
 
 Log-log slope (error ∝ N^s): one step s = -0.35, rollout mean s = -0.41.
 Largest model, held-out IC rolled out 57 steps (3× training horizon): nRMSE 0.0622 @ step 1, 0.271 @ step 10, 0.237 @ step 19, 0.0924 @ step 38, 0.0291 @ step 57.
-Demo playback inserts frames between FNO steps by motion-compensated interpolation; on solver truth it reconstructs the skipped frames with rel L2 0.131 vs 0.198 for linear crossfade.
 
 ## Aliev–Panfilov (u)
 
@@ -38,20 +37,9 @@ Demo playback inserts frames between FNO steps by motion-compensated interpolati
 
 Log-log slope (error ∝ N^s): one step s = -0.43, rollout mean s = -0.48.
 Largest model, held-out IC rolled out 57 steps (3× training horizon): nRMSE 0.0215 @ step 1, 0.0587 @ step 10, 0.222 @ step 19, 0.391 @ step 38, 0.375 @ step 57.
-Demo playback inserts frames between FNO steps by motion-compensated interpolation; on solver truth it reconstructs the skipped frames with rel L2 0.0419 vs 0.108 for linear crossfade.
 
 ## Notes
 
 - N = 512 and 1024 both hit the 6000-step cap (~5 and ~2.5 epochs), so the flattening at the top end is at least partly a compute limit, not only a data limit.
 - Long-horizon errors fall once the truth itself decays (the tsunami is absorbed by the sponge coast), so steps 38/57 for SWE mostly measure the quiet basin after impact.
 
-## Viewing rollouts
-
-`results/viz/{swe,ap}_{truth,fno}/` are in the viz page formats (solver truth vs FNO, same held-out IC; SWE land is a damping sponge in the solver, drawn as beach and hills):
-
-```sh
-python3 -m http.server 8000   # repo root
-open 'http://localhost:8000/viz/tsunami/?data=../../baseline_FNO/results/viz/swe_fno/'
-open 'http://localhost:8000/viz/heart/?data=../../baseline_FNO/results/viz/ap_fno/&geometry=sheet'
-# swap _fno for _truth to compare
-```

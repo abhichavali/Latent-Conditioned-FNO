@@ -58,23 +58,13 @@ def write(res, out):
         L += ["", f"Log-log slope (error ∝ N^s): one step s = {slope(t, 'one_step'):.2f}, rollout mean s = {slope(t, 'rollout_mean'):.2f}."]
         if "viz" in r:
             e = r["viz"]["rel_l2_at"]
-            ic = r["viz"]["interp_check"]
             L += [f"Largest model, held-out IC rolled out {r['viz']['steps']} steps (3× training horizon): nRMSE "
-                  + ", ".join(f"{v:.3g} @ step {k}" for k, v in e.items()) + ".",
-                  f"Demo playback inserts frames between FNO steps by motion-compensated interpolation; on solver truth it "
-                  f"reconstructs the skipped frames with rel L2 {ic['flow']:.3g} vs {ic['linear']:.3g} for linear crossfade."]
+                  + ", ".join(f"{v:.3g} @ step {k}" for k, v in e.items()) + "."]
         L += [""]
     L += ["## Notes", "",
           "- N = 512 and 1024 both hit the 6000-step cap (~5 and ~2.5 epochs), so the flattening at the top end is at "
           "least partly a compute limit, not only a data limit.",
           "- Long-horizon errors fall once the truth itself decays (the tsunami is absorbed by the sponge coast), so "
           "steps 38/57 for SWE mostly measure the quiet basin after impact.", ""]
-    L += ["## Viewing rollouts", "",
-          "`results/viz/{swe,ap}_{truth,fno}/` are in the viz page formats (solver truth vs FNO, same held-out IC; "
-          "SWE land is a damping sponge in the solver, drawn as beach and hills):", "",
-          "```sh", "python3 -m http.server 8000   # repo root",
-          "open 'http://localhost:8000/viz/tsunami/?data=../../baseline_FNO/results/viz/swe_fno/'",
-          "open 'http://localhost:8000/viz/heart/?data=../../baseline_FNO/results/viz/ap_fno/&geometry=sheet'",
-          "# swap _fno for _truth to compare", "```", ""]
     open(doc, "w").write("\n".join(L))
     print("wrote", doc)

@@ -1,8 +1,7 @@
-"""The two held-out demos in the same spec format, simulated by the generic solver and written for the viz pages.
+"""The two held-out equations (shallow water, Aliev-Panfilov) in the same spec format, simulated by the generic solver.
 
-  python demos.py swe  [--out demos/swe]     -> h.npy (T, Ny, Nx) depth, b.npy (Ny, Nx) bed, meta.json   (viz/tsunami)
-  python demos.py ap   [--out demos/ap]      -> u.npy (T, Ny, Nx) potential, meta.json                    (viz/heart)
-  open http://localhost:8000/viz/tsunami/?data=../../data_collection/demos/swe/
+  python demos.py swe  [--out demos/swe]     -> h.npy (T, Ny, Nx) depth, b.npy (Ny, Nx) bed, meta.json
+  python demos.py ap   [--out demos/ap]      -> u.npy (T, Ny, Nx) potential, meta.json
 
 Each also writes spec.json (with its graph) so the model sees exactly what it would see for a training equation.
 """

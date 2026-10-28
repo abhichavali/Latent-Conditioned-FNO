@@ -4,7 +4,7 @@ rollouts, sweep N, test on held-out ICs (one-step and 19-step autoregressive rel
   python train.py --data /root/baseline_data --out results
 
 Writes results/results.json, results/error_vs_data.png, RESULTS.md (next to this file) and truth-vs-FNO
-rollouts for the viz pages: results/viz/{swe,ap}_{truth,fno}/.
+rollouts: results/viz/{swe,ap}_{truth,fno}/.
 """
 
 import argparse

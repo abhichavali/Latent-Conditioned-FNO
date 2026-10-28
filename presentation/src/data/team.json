@@ -1,7 +1,0 @@
-{
-  "note": "Fill in the team. photo: a path under public/ (e.g. \"team/abhinav.jpg\" for public/team/abhinav.jpg) or null for initials.",
-  "members": [
-    { "name": "Abhinav Chavali", "role": "", "photo": null },
-    { "name": "Name", "role": "", "photo": null }
-  ]
-}

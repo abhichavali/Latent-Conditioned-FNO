@@ -1,5 +1,0 @@
-node_modules
-dist
-*.log
-# scenario bank + backup video: generated (npm run mock-bank) or copied in from the GPU job, too big for git
-public/demo/
