@@ -1,7 +1,7 @@
-# PDE data collection
+# Data collection
 
-Every PDE — training equations and the two held-out demos alike — is a JSON **spec**: evolving scalar fields
-`u(x, y, t)` on a periodic square, optional static fields `a(x, y)`, and one sympy right-hand side per field.
+Every PDE is a JSON spec: scalar fields `u(x, y, t)` on a periodic square, optional static fields `a(x, y)`, and a
+sympy right-hand side per field.
 
 ```json
 {"fields": ["u", "v"], "static": ["a"], "L": 40.0, "N": 128,
@@ -10,82 +10,66 @@ Every PDE — training equations and the two held-out demos alike — is a JSON 
  "dt": 0.05, "substeps": 12, "frames": 15}
 ```
 
-Operators: `dx dy lap`, `+ - * / **`, `sin cos exp tanh log Abs`. Arrays are `(..., y, x)`; `dx` acts on the last axis.
+Operators: `dx dy lap`, `+ - * / **`, `sin cos exp tanh log Abs`. Arrays are `(..., y, x)`.
 
-**Graph** (`pde.graph(spec)`): the expression DAG of all right-hand sides, identical subexpressions shared.
-Nodes are `field i`, `static i`, `const value`, operators (`add mul pow dx dy lap sin tanh abs …`) and one `dt i`
-root per field; edges are `[child, parent, arg position]` (position matters only for `pow`).
+`pde.graph(spec)` turns the right-hand sides into an expression DAG (shared subexpressions merged). This graph is
+what the model's encoder sees.
 
 ## Files
 
-| File | Role |
-|---|---|
-| `pde.py` | spec → graph / LaTeX; generic exponax ETDRK solver for any spec (one compile per spec) |
-| `template.py` | 2- and 3-field coefficient templates: an equation is a coefficient matrix over a fixed term library, so one compile serves all equations, vmapped over equations × ICs; specs are generated from the coefficients |
-| `sample.py` | equation families (transport/waves near SWE, excitable/reaction–diffusion near Aliev–Panfilov, pattern formation, free composition) + SWE / AP building-block subsets, mutations and term dropout; GPU IC pools (7 pattern families, patches, wakes, vortex seeds); max-entropy (greedy log-det over bounded spectral/amplitude/rate features) window selection, capped at 25% per IC family and 2/3 early windows |
-| `generate.py` | per-equation dt / frame-interval calibration, pool rollout over `--windows` consecutive 14-step windows, selection of `--keep` windows, writer; resumable, `--id-offset` lets several GPUs share one `--out` |
-| `coverage.py` | building-block coverage: equations and partner terms per library term, SWE / AP pieces alone and in pairs, terms that always co-occur; for the sampler (`--sample 4096`) or a dataset (`--out DIR`, writes `coverage.json`) |
-| `merge_extra.py` | merges a `--supplement` output into a dataset in place (numpy only) |
-| `demos.py` | shallow water and Aliev–Panfilov as specs, simulated and written for `viz/tsunami` and `viz/heart` |
+- `pde.py`: spec -> graph / LaTeX, and a generic exponax ETDRK solver for any spec
+- `template.py`: 2- and 3-field templates. An equation is a coefficient matrix over a fixed term library, so one
+  compile covers every equation (vmapped over equations x ICs)
+- `sample.py`: equation families (transport near shallow water, excitable near Aliev-Panfilov, pattern formation,
+  random), IC pools, and window selection (greedy log-det over simple features)
+- `generate.py`: dt calibration, rollouts, window selection, writing. Resumable; `--id-offset` lets several GPUs
+  share one output dir
+- `coverage.py`: how often each library term / SWE piece / AP piece shows up
+- `merge_extra.py`: merges a `--supplement` run into a dataset
+- `demos.py`: shallow water and Aliev-Panfilov written as specs (used by `model/targets.py` and `baseline_FNO`)
 
-## Dataset layout (`/workspace/pdegen/out` on the GPU box)
+Self-checks: `python pde.py`, `python template.py`, `python sample.py`.
 
-`index.jsonl` (one line per equation) and `eq_XXXX/`:
-- `spec.json` — spec + `latex`, `graph`, `template` coefficients, `norm`, per-sample IC family and window start
-- `u.npy` — float16 `(ICs, 15, fields, 128, 128)` = `(u - norm.shift) / norm.scale`
-- `static.npy` — float16 `(ICs, 128, 128)`, raw, iff `spec["static"]` is non-empty
+## Output layout
+
+`index.jsonl` (one line per equation) and `eq_XXXX/` with:
+- `spec.json`: spec + latex, graph, template coefficients, normalization, IC family per sample
+- `u.npy`: float16 `(ICs, 15, fields, 128, 128)`, normalized
+- `static.npy`: float16 `(ICs, 128, 128)` if the spec has statics
 
 ## Datasets
 
-**A** — 1024 equations x 73 ICs, pre-v2 sampler (before `ec1a5f0`): 512-IC pool, 2 windows, fixed per-frame change 0.12.
+The datasets (~200 GB) aren't stored anywhere, these commands regenerate them.
+
+A: 1024 equations x 73 ICs, old sampler (before `ec1a5f0`).
 
 ```sh
 python generate.py --out /workspace/pdegen/out --pool 512
 ```
 
-351 of A's equations (8 with nan frames) were hit by the selection bug described under B and reselected in place
-from their specs; `--ic-scale 0.9 0.3` restores A's IC pool (`--check` on A reproduces it):
+351 of A's equations were hit by the selection bug below and got reselected:
 
 ```sh
 python generate.py --supplement A_SPECS_AFFECTED --extra 0 --pool 512 --windows 2 --ic-scale 0.9 0.3 --out A_FIX --n 1024
-python merge_extra.py A_DIR A_FIX 73 73   # 73 = 73 windows: replaces them
+python merge_extra.py A_DIR A_FIX 73 73
 ```
 
-**B** — 4096 equations x 30 ICs, current sampler: 18 generated, one worker per GPU (worker 1: `CUDA_VISIBLE_DEVICES=1 ... --id-offset 2048 --seed 2`):
+B: 4096 equations x 30 ICs, current sampler. One worker per GPU (second GPU: `--id-offset 2048 --seed 2`):
 
 ```sh
 CUDA_VISIBLE_DEVICES=0 XLA_PYTHON_CLIENT_MEM_FRACTION=.9 python generate.py --out /workspace/pdegen/out \
     --n 2048 --keep 18 --pool 128 --windows 3 --target 0.06 0.24 --permute 0.5 --id-offset 0 --seed 1
-```
-
-- building blocks: 3-field transport equations take a random subset of the SWE pieces {flux, adv, grad, bathy},
-  composite excitable ones a subset of the AP pieces {cubic, uv, gate}, so each appears alone and in pairs; the
-  holdout cores (flux+adv+grad, cubic+uv+gate) are never emitted
-- dropout: in 60% of equations each non-diffusive, non-core term is dropped with p = 0.1
-- field-label permutation: with p = 0.5 the saved field order is shuffled
-- frame interval: each equation's per-frame change target is log-uniform in [0.06, 0.24]
-- 128 ICs x 3 consecutive windows = 384 candidate windows, 18 kept
-
-Extra spec keys in B: `pieces` (SWE / AP blocks present, read off the coefficients), `perm` (saved field j is
-internal field `perm[j]`; `fields`, `rhs`, `ic`, `norm` already renamed to match), `target_change`.
-
-then 12 more per equation by a supplement pass (same pools re-simulated bit-exactly, stored picks forced first),
-merged in place:
-
-```sh
 python generate.py --supplement /workspace/pdegen/out --extra 12 --out /workspace/pdegen/extra --pool 128 --windows 3 \
-    --n 2048 --id-offset 0             # and --id-offset 2048 on GPU 1; --check 5 first verifies the reproduction
-python merge_extra.py B_DIR EXTRA_DIR 18 30   # resumable; removes each supplement dir once merged
+    --n 2048 --id-offset 0
+python merge_extra.py B_DIR EXTRA_DIR 18 30
 ```
 
-The 18-IC selection had a bug, fixed in `sample.select`: one blown-up candidate window (inf / nan) poisoned the
-feature normalization, so 1280 equations picked only ICs 0 and 1 of the first window, alternating (45 of them with
-nan frames).  The supplement reselects those 30 windows from scratch; the other 2816 keep their 18.
+What's different in B:
+- transport equations use a random subset of the SWE pieces (flux, adv, grad, bathy) and excitable ones a subset of
+  the AP pieces (cubic, uv, gate). The full SWE and AP cores are never generated, so they stay held out
+- 60% of equations drop each non-core term with p = 0.1
+- field order is shuffled with p = 0.5 (`perm` in the spec)
+- per-frame change target is log-uniform in [0.06, 0.24]
 
-```sh
-python coverage.py --sample 4096                                   # what the sampler draws
-JAX_PLATFORMS=cpu python coverage.py --out /workspace/pdegen/out   # a dataset; writes out/coverage.json
-python ../viz/dataset/serve.py --data /workspace/pdegen/out        # viewer, then: ssh -N -L 8000:localhost:8000 <box>
-```
-
-Self-checks: `python pde.py`, `python template.py`, `python sample.py`.
+Bug note: in the original 18-window selection, one blown-up candidate (inf/nan) broke the feature normalization, so
+1280 equations only picked ICs 0 and 1. The supplement pass reselects all 30 windows for those.

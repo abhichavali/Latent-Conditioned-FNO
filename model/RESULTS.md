@@ -1,11 +1,11 @@
-# Results: evaluation (phase 3) and few-shot active learning (phase 4)
+# v1 results: zero-shot eval and few-shot active learning
 
 Final model: A ∪ B pretraining, `pretrain_AB` step 200000 (4840 training equations, 280 rehearsal). Reference: the
 A-only model, `pretrain_A` step 146955. Everything here is reproducible from `model/results/`
 (`<run>_s<step>/results.json`, `active/<target>_<method>/history.jsonl`, `deck_*.json`; scratch curves in
 `results/scratch/`, made by `baselines.py`).
 
-**Metric** (`eval.summarize`): relL2 of frames 1–14 predicted from the IC at frame 0, on fixed 100-IC test sets.
+Metric (`eval.summarize`): relL2 of frames 1–14 predicted from the IC at frame 0, on fixed 100-IC test sets.
 `raw` = physical units per (trajectory, frame), mean over frames and ICs (= baselines.py `raw_*`, the headline).
 `rel` = the training loss's relL2 in the per-trajectory normalized space (= `rel_*`). `slot0` = primary field (SWE
 eta, AP u). On AP, `raw` is noisy: frames where u ≈ 0 inflate it, so `rel` is shown too. On data sets (val-IC,
@@ -13,7 +13,7 @@ rehearsal) only `rel` is meaningful, because some trajectories have near-zero tr
 
 ![headline](results/pretrain_AB_s200000/headline_raw_slot0.png)
 
-## Headline: pretrained vs scratch data-efficiency (A ∪ B finals, stage B, 20 rounds × 5 sims)
+## Pretrained vs scratch (A ∪ B, stage B, 20 rounds × 5 sims)
 
 The table gives the simulations each method needs to reach scratch's error at N scratch simulations (log-linear
 interpolation between rounds); "×" = N / sims. The best acquisition is shown: random on both targets.
@@ -21,7 +21,7 @@ interpolation between rounds); "×" = N / sims. The best acquisition is shown: r
 | target, metric | scratch N | scratch error | pretrained sims | × fewer |
 |---|---:|---:|---:|---:|
 | AP, raw | 16 | 1.11 | 5 (0.90 at 5) | ≥ 3.2 |
-| AP, raw | **64** | **0.88** | **5.4** | **≈ 12×** |
+| AP, raw | 64 | 0.88 | 5.4 | ≈ 12× |
 | AP, raw | 128 | 0.54 | not reached in 100 (0.76) | < 1.3 |
 | AP, rel | 32 | 0.56 | 8.3 | 3.9× |
 | AP, rel | 64 | 0.45 | 52 | 1.2× |
@@ -43,17 +43,17 @@ Curves, raw_slot0, stage B, at sims 0 / 5 / 10 / 25 / 50 / 100:
 
 | | random | active | active v2 | scratch (N = 8 / 16 / 32 / 64 / 128 / 512) |
 |---|---|---|---|---|
-| SWE | 8.18 / 0.75 / 0.64 / 0.49 / 0.39 / **0.31** | 8.18 / 0.77 / 0.64 / 0.52 / 0.44 / 0.34 | 8.18 / 0.75 / 0.70 / 0.60 / 0.51 / 0.44 | 1.09 / 0.55 / 0.42 / 0.28 / 0.20 / 0.08 |
-| AP | 2.24 / **0.90** / 0.75 / 0.95 / 0.85 / 0.76 | 2.24 / 1.11 / 0.92 / 0.80 / 0.78 / 0.65 | 2.24 / 1.00 / 0.99 / 0.79 / 0.86 / 0.92 | 1.64 / 1.11 / 1.11 / 0.88 / 0.54 / 0.29 |
-| fire | 1.71 / **0.69** / 0.65 / 0.59 / 0.56 / 0.50 | 1.71 / 0.79 / 0.71 / 0.66 / 0.54 / **0.49** | – | 0.91 / 0.67 / 0.62 / 0.59 / 0.53 / 0.37 |
-| AP (rel) | 0.98 / 0.62 / 0.54 / 0.48 / 0.45 / **0.40** | 0.98 / 0.64 / 0.58 / 0.52 / 0.48 / 0.43 | 0.98 / 0.62 / 0.59 / 0.51 / 0.51 / 0.48 | 0.76 / 0.63 / 0.56 / 0.45 / 0.36 / 0.22 |
+| SWE | 8.18 / 0.75 / 0.64 / 0.49 / 0.39 / 0.31 | 8.18 / 0.77 / 0.64 / 0.52 / 0.44 / 0.34 | 8.18 / 0.75 / 0.70 / 0.60 / 0.51 / 0.44 | 1.09 / 0.55 / 0.42 / 0.28 / 0.20 / 0.08 |
+| AP | 2.24 / 0.90 / 0.75 / 0.95 / 0.85 / 0.76 | 2.24 / 1.11 / 0.92 / 0.80 / 0.78 / 0.65 | 2.24 / 1.00 / 0.99 / 0.79 / 0.86 / 0.92 | 1.64 / 1.11 / 1.11 / 0.88 / 0.54 / 0.29 |
+| fire | 1.71 / 0.69 / 0.65 / 0.59 / 0.56 / 0.50 | 1.71 / 0.79 / 0.71 / 0.66 / 0.54 / 0.49 | – | 0.91 / 0.67 / 0.62 / 0.59 / 0.53 / 0.37 |
+| AP (rel) | 0.98 / 0.62 / 0.54 / 0.48 / 0.45 / 0.40 | 0.98 / 0.64 / 0.58 / 0.52 / 0.48 / 0.43 | 0.98 / 0.62 / 0.59 / 0.51 / 0.51 / 0.48 | 0.76 / 0.63 / 0.56 / 0.45 / 0.36 / 0.22 |
 
 The latent-only curves (dashed in the plot) barely move on SWE and AP. On these unseen PDEs, adapting z alone does
 not fit, and the fine-tuning branch (stage B) does the work.
 
-## Secondary: acquisition
+## Acquisition
 
-Once the backbone is fine-tuned, acquisition matters little and **random is a strong baseline**. In the finals,
+Once the backbone is fine-tuned, acquisition matters little and random is a strong baseline. In the finals,
 random beats active on SWE (0.31 vs 0.34 at 100 sims) and in AP's training metric (0.40 vs 0.43); on AP raw they
 trade places; on fire random leads up to 25 sims and active ends marginally ahead (0.49 vs 0.50). Active v2 (EPIG-style, `active_v2.py`) is the weakest on both (SWE 0.44, AP rel 0.48). On the A
 model the picture is the same (A runs, adapter stage B):
@@ -72,16 +72,16 @@ model the picture is the same (A runs, adapter stage B):
 | SWE, raw | | | 2.24 [2.23] | 2.24 [2.23] | 2.21 [2.25] | 2.17 [2.22] | 2.35 |
 | AP, raw | | | 2.81 [1.35] | 2.75 [1.26] | 1.19 [1.68] | 1.58 [1.86] | 1.78 |
 
-- **Latent collapse test:** swapping z between equations raises the val-IC error 5.5× in rel_all (0.35 → 1.90)
+- Latent collapse test: swapping z between equations raises the val-IC error 5.5× in rel_all (0.35 → 1.90)
   [A: 4.3×; training log ~2.2 in the capped metric]. The backbone uses z.
-- **Zero-shot:** on held-out structures the graph prior gives 0.57, against 0.73 generic and 1.57 persistence. On
+- Zero-shot: on held-out structures the graph prior gives 0.57, against 0.73 generic and 1.57 persistence. On
   the targets, zero-shot fails: SWE ≈ persistence (all-zeros scores 1.0), and AP graph is 2.75 on A ∪ B (1.26 on
   A).
-- **Graph vs generic prior:** the graph prior wins zero-shot on data equations (val-IC 0.55 vs 0.77, rehearsal
+- Graph vs generic prior: the graph prior wins zero-shot on data equations (val-IC 0.55 vs 0.77, rehearsal
   0.57 vs 0.73) and on AP with the A model. It loses on AP with A ∪ B. In latent-only few-shot the generic prior wins
   on both targets (A model: SWE 1.07 vs 2.13, AP 0.95 vs 1.05 at 100 sims), because the graph prior is too narrow
   (next item).
-- **Calibration:** on 60 A ∪ B rehearsal equations, z* fitted to all of an equation's windows falls inside 1σ / 2σ
+- Calibration: on 60 A ∪ B rehearsal equations, z* fitted to all of an equation's windows falls inside 1σ / 2σ
   of p_phi 17.8% / 35.2% of the time (expected 68% / 95%). One temperature τ = 4.26 restores 69% / 95% [A: τ =
   4.64]. The A ∪ B finals used the tempered graph prior (σ → 4.26σ). Caveats:
   - Adam lets z* drift along weakly identified directions, which inflates τ.
@@ -93,12 +93,12 @@ model the picture is the same (A runs, adapter stage B):
 
 | raw at 5 / 50 / 100 | adapter B (A runs) | full B (finals) | stage C | stage C, cosine, patience 10 |
 |---|---|---|---|---|
-| SWE | 0.95 / 0.77 / 0.75 | 0.91 / 0.54 / **0.48** | 0.97 / 0.60 / 0.49 | – / 0.59 / 0.54 at 75 |
-| AP | 0.84 / 0.61 / 0.74 | 0.94 / 0.65 / **0.57** | 1.10 / 0.66 / 0.57 | |
+| SWE | 0.95 / 0.77 / 0.75 | 0.91 / 0.54 / 0.48 | 0.97 / 0.60 / 0.49 | – / 0.59 / 0.54 at 75 |
+| AP | 0.84 / 0.61 / 0.74 | 0.94 / 0.65 / 0.57 | 1.10 / 0.66 / 0.57 | |
 
-- **Full B** (`--stage b --ft_full --ft_lr 5e-4 --ft_pull 1e-4 --ft_steps 300`): all weights, 300 Adam steps per
+- Full B (`--stage b --ft_full --ft_lr 5e-4 --ft_pull 1e-4 --ft_steps 300`): all weights, 300 Adam steps per
   round warm-started, a weak pull toward the pretrained weights, z of each pair = a random particle.
-- **Stage C** (`make_stage_c`): all weights + z, pull decaying as 5/N, early stopping on held-out acquired sims.
+- Stage C (`make_stage_c`): all weights + z, pull decaying as 5/N, early stopping on held-out acquired sims.
   It was never better than full B.
 - The adapter (spectral banks frozen) underfits its own training sims on SWE.
 
@@ -114,5 +114,4 @@ model the picture is the same (A runs, adapter stage B):
 - Every finals run stores its acquired sims (`state.npz`) and final weights (`ft.eqx`) under
   `pdebox3:/workspace/results/pretrain_AB_s200000/active/`.
 
-Fire (`targets.py` "fire", added by the fire agent; the target after its 09:15 UTC revision) ran with the same
-settings: active and random only, graph prior tempered by τ.
+- Fire (`targets_fire.py`) ran with the same settings, active and random only, graph prior tempered by τ.

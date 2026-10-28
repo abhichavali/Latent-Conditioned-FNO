@@ -1,170 +1,83 @@
-# Latent-conditioned FNO + graph-encoder prior
+# Model
 
-A frozen-after-pretraining FNO steered by a per-equation latent `z` (d_z = 32), and a graph encoder that maps the
-equation graph to a prior `N(mu, diag sigma^2)` over `z`. On a new PDE we start from that prior and update it with a
-small simulation budget (later phases).
+v1: an FNO steered by a per-equation latent z (d_z = 32, FiLM + a mixture of spectral filter banks), plus a graph
+encoder that maps the equation graph to a prior N(mu, sigma^2) over z. On a new PDE we start from that prior and
+update with a small simulation budget (active learning + fine-tuning).
 
-| File | Role |
-|---|---|
-| `config/A.yaml` | pretraining on dataset A (all settings, commented); `B.yaml`, `AB.yaml` change only `data.roots`; `smoke.yaml` is a tiny run |
-| `data/adapter.py` | equation table over dataset roots (ids `tag/eq_XXXX`), duplicate / non-finite window removal, test-time normalization, mmap batch stream with a prefetch thread pool |
-| `data/canon.py` | canonical equation graphs (sympy, cached): one expression tree per additive term, node features |
-| `data/splits.py` | seeded splits: rehearsal by structure, val-IC, train |
-| `models/fno.py` | conditioned, time-conditioned FNO (FiLM + softmax mixture of spectral filter banks, zero-init conditioning) |
-| `models/encoder.py` | graph encoder p_phi(z \| G) |
-| `train.py` | objective, logging, checkpoints, resume |
-| `run.sh` | restart loop (resumes from the latest checkpoint until `DONE`) |
-| `targets.py` | SWE coastal tsunami and Aliev–Panfilov-with-scar: specs, canonical graphs, knob samplers, solver, fixed test sets |
-| `eval.py` | phase 3: latent-collapse test, zero-shot (val-IC, rehearsal, SWE, AP) vs persistence, graph vs generic prior, calibration |
-| `active.py` | phase 4: few-shot active learning over K latent particles (theta, phi frozen); `summary` = headline plot + sims-to-target table |
+v3: no latent table. A transformer reads the equation graph and any number of simulations and outputs q(z | G, C),
+trained with a Neural Process objective. Wider FNO (515M params).
 
-## Data interface
+Everything is JAX / equinox and was run on rented GPUs, so paths below are `/workspace/...` on the box.
 
-- Field slot k = `spec.fields[k]` = graph field node k (padded to 3, presence flags); static slot k = `spec.static[k]` =
-  graph static node k (padded to 2). One reserved mask channel `chi` (zeros), coordinates (x, y) in [0, 1)^2.
-- Normalization per trajectory and field, from the IC only: subtract the IC spatial mean, divide by the IC std
-  (floor 1e-3; constant ICs such as momentum at rest use 1.0). The model also gets `tanh(mean/std/5)` and
-  `log10(std)/3` per slot (and `log10(rms)/3` per static) as constant channels, so absolute levels are not lost.
-  Statics are divided by their RMS. Stored data is de-normalized first (`u * scale + shift`).
-- Time t = k / (frames - 1) in [0, 1]; log T and log L (T = (frames - 1) * frame_dt) go into the conditioning, divided by 4.
-- Loss: relative L2 per (sample, query time, field slot), masked by presence, averaged; in training each term is
-  soft-capped at 4 (`rel_cap`). Primary observable = slot 0 (`rel_slot0` in the logs).
-- Windows that are duplicates (same pool IC and start frame) are kept once, and windows with non-finite values are
-  dropped (cached in `cache_dir/nonfinite_<tags>.json`).
+## Files
 
-## Switching datasets
+- `config/`: `A.yaml` is the commented v1 config, `B.yaml` / `AB.yaml` only change the data roots, `ctx.yaml` is v3,
+  `scratch*.yaml` are the from-scratch baselines, `smoke.yaml` is a 1-minute test
+- `data/`: dataset loading and normalization (`adapter.py`), canonical equation graphs (`canon.py`), splits
+  (`splits.py`), v3 context cache (`ctx.py`)
+- `models/`: conditioned FNO (`fno.py`), graph encoder (`encoder.py`), v3 context encoder + wider FNO (`context.py`)
+- `train.py`, `run.sh`: v1 training; `run.sh` restarts from the latest checkpoint until `DONE`
+- `train_ctx.py`: v3 training
+- `targets.py`, `targets_fire.py`: the held-out targets (shallow water tsunami, Aliev-Panfilov heart with a scar,
+  wildfire) with samplers, solver and fixed 100-IC test sets
+- `eval.py`: zero-shot eval, latent collapse test, prior calibration
+- `active.py`, `active_v2.py`: few-shot active learning for v1 (`active_v2` is an EPIG-style variant)
+- `fewshot_ctx.py`: few-shot / k-shot eval for v3
+- `baselines.py`: FNO from scratch on N simulations
+- `scratch_vs_ctx.py`: v3 vs scratch on fresh equations
+- `queue_ctx.sh`, `queue_svc.sh`: unattended eval queues I ran on the GPU box
 
-Only `data.roots` changes: `[{tag: A, path: ...}]`, `[{tag: B, path: ...}]`, or both for A ∪ B (ids stay unique by tag).
-Splits, normalization, counts of equations / ICs / frames are all read from disk. On `pdebox3` (RTX 5090) the data
-lives in `/workspace/data/A` and `/workspace/data/B`.
+## Data
 
-**Warm start A ∪ B from A** (`config/AB.yaml`): `train.init_from: /workspace/runs/pretrain_A` loads that run's latest
-checkpoint into a run that has none of its own: backbone and encoder weights as they are, latent rows copied by
-equation id (`A/eq_0012`), B rows initialised N(0, 0.01^2), fresh optimizer. `split.inherit:
-/workspace/runs/pretrain_A/splits.json` keeps every A equation's split and val-IC windows and reuses A's held-out
-structures, so B equations containing them are rehearsal too. Val-IC is inherited by window identity (pool IC,
-start frame), so an in-place repair of A's windows keeps held-out ICs held out, and repaired equations that had no
-val-IC get it from ICs they were never trained on.
+- Up to 3 field slots and 2 static slots (padded, with presence flags), plus a mask channel and (x, y) coordinates.
+- Each trajectory is normalized by its IC (subtract mean, divide by std). The mean / std go in as extra channels so
+  the absolute level isn't lost.
+- Time is t = k / (frames - 1); log T and log L go into the conditioning.
+- Loss is relative L2 per (sample, time, field), capped at 4 in training. Slot 0 is the main field.
+- Splits: "rehearsal" holds out ~5% of equations by term structure (pairs/triples of library terms), "val_ic" holds
+  out 10% of ICs of training equations. The targets aren't in either dataset.
 
-Launch on pdebox3 once `/workspace/runs/pretrain_A/{config.yaml, splits.json, ckpt/step_<latest>.eqx}` are there
-(splits.json must carry `train_ids` / `val_ids`, see `splits.ids_of`):
-
-```sh
-ssh pdebox3 'setsid nohup bash /workspace/repo/model/run.sh config/AB.yaml > /dev/null 2>&1 < /dev/null & disown'
-# resize: append --steps N (kept on every restart);  stop: pkill -f '[r]un.sh config/AB.yaml'; pkill -TERM -f '[t]rain.py --config config/AB.yaml'
-```
+Switching datasets is just `data.roots` in the config. `AB.yaml` warm-starts from the A run (`train.init_from`) and
+keeps A's splits (`split.inherit`).
 
 ## Running
 
 ```sh
-cd /workspace/repo/model
-bash run.sh config/smoke.yaml                                   # ~1 min smoke test (foreground)
-setsid nohup bash run.sh config/A.yaml > /dev/null 2>&1 < /dev/null & disown   # pretraining, detached
-python targets.py --out /workspace/targets                      # SWE / AP test sets (100 ICs each, ~20 s)
+bash run.sh config/smoke.yaml                                   # smoke test
+setsid nohup bash run.sh config/A.yaml > /dev/null 2>&1 < /dev/null & disown   # v1 pretraining
+python targets.py --out /workspace/targets                      # target test sets
+python eval.py --run /workspace/runs/pretrain_A [--ckpt CK]     # zero-shot eval
+python active.py run --run RUN --ckpt CK --target swe|ap|fire --method active|random|generic
+python active.py summary --results /workspace/results/<run>_s<step>
+
+python data/ctx.py --config config/ctx.yaml                      # v3 context cache
+TRAIN=train_ctx.py bash run.sh config/ctx.yaml                   # v3 training
+python fewshot_ctx.py run --run /workspace/runs/ctx --ckpt CK --target swe --method active
+python fewshot_ctx.py rehearsal --run /workspace/runs/ctx --ckpt CK
+
+python baselines.py gen --config config/scratch.yaml
+python baselines.py sweep --config config/scratch.yaml --target swe
+python baselines.py summary --config config/scratch.yaml
 ```
 
-Run dir `<run_root>/<name>/` (`/workspace/runs/pretrain_A/`): `config.yaml` and `splits.json` (frozen at first start),
-`log.jsonl`, `tb/` (TensorBoard), `ckpt/step_XXXXXXXX.eqx` (model, encoder, latents, optimizer state; last 3, every
-15 min) with a `.json` sidecar (step, training seconds), `stdout.log`, `start_time`, `DONE`. Log lines carry
-`elapsed_h` (wall clock since the run's first start) and `train_h` (training time summed over restarts). Data order and per-step RNG depend only on (seed, step), so a resumed run
-continues exactly. Restarting `run.sh` (or the loop itself after a crash) resumes from the latest checkpoint.
+A run dir has `config.yaml`, `splits.json`, `log.jsonl`, `tb/`, and `ckpt/` (last 3, every 15 min, also on
+SIGTERM). Resuming is exact since data order only depends on (seed, step). To stop: kill `run.sh` first, then
+`pkill -TERM -f train.py`.
 
-Watch: `tail -f /workspace/runs/pretrain_A/stdout.log`, or
-`tensorboard --logdir /workspace/runs --port 6006` then `ssh -N -L 6006:localhost:6006 pdebox3`.
+Metrics: relL2 over frames 1..14 from the IC. `raw` is in physical units (the headline number), `rel` is in the
+normalized space (same as the training loss).
 
-Stop cleanly (keeps checkpoints; `train.py` checkpoints on SIGTERM): kill the loop first, then python:
-`pkill -f '[r]un.sh config/A.yaml'; pkill -TERM -f '[t]rain.py --config config/A.yaml'`.
+## Shallow water units
 
-## Validation logged every 10 min and at every (re)start
+SWE runs in mixed units (km, ks, m) so that log L and log T land inside the pretraining range. In pure SI the
+domain is way bigger than anything in pretraining, and in pure km the IC std falls below the normalization floor.
+`targets.check_swe_mix` checks it matches the SI solver. No pretraining equation has a second static, so for SWE
+the sponge slot copies slot 0's weights (`eval.adapt_statics`).
 
-On fixed val-IC batches (held-out ICs of training equations) and rehearsal batches (held-out structures):
-`persistence` (u(t) = u(0), computed once), `z_table` (latent table), `prior_mu` (z = mu_phi(G), prior only),
-`swap` (table latents rolled across the batch's equations); `ratio_to_persistence`, `swap_ratio` = swap / z_table
-(> 1 means the backbone uses z), plus uncapped means and medians. Train lines carry relL2, NLL, mean sigma_phi,
-|z| stats, encoder-sample fraction, schedules, steps/s and `elapsed_h` since the run's first start.
+## Scratch baseline
 
-## Splits (`splits.json`)
-
-- rehearsal: a seeded greedy pick of library-term pairs / triples (`kind:item`, as in `coverage.py`) each covering
-  0.8–2.5% of equations, until ~5% of equations are held out; every equation containing one is held out. Each
-  term of a chosen structure still appears in training, and terms that form the SWE / AP pieces are never used.
-- val_ic: 10% of the IC groups of each training equation with at least 10 unique ICs.
-- the SWE / AP targets are outside both datasets.
-
-## Targets (`targets.py`, test sets in `/workspace/targets/{swe,ap}/`, pretraining layout + `params.npy`)
-
-| | fields / statics | L | frame_dt | T | knobs |
-|---|---|---|---|---|---|
-| swe | eta, u, v / b, s (fixed demo coast) | 4 km | 10 s (0.25 s x 40) | 140 s | 2 fault sources: on, x in [0.08, 0.36], y in [0.2, 0.8], angle, amp, width, length, subsidence lobe (on, side, offset, amp) |
-| ap | u, v / D (scar, per IC) | 64 | 2.5 (0.02 x 125) | 35 | 2 broken fronts (on, x, y, angle, width, half length, wake, v amp), 2 stimuli (on, x, y, radius), scar (x, y, radius, D_min in [0.02, 0.05]) |
-
-**SWE is in mixed units** (`targets.SWE_MIX`): horizontal length in km, time in ks, eta and b in m, u and v in
-km/ks (= m/s, numerically unchanged), sponge s in 1/ks.  In SI demos.SWE has L = 4000 (log L 8.3 vs pretraining's
-1.6–5.3); pure km pushed the eta IC std (1.4e-4 km) under `adapter.normalize`'s absolute floor 1e-3 and made u, v
-~1e-4 at the fallback scale 1 (zero-shot eta relL2 3.3 vs 1.3 in SI).  Mixed: L = 4, T = 0.14 (log T -2.0, inside
-A's -4.0..4.8), g' = 9.81, viscosity 8e-3, s' = 1000 s; the fields match the SI solver to 6e-7
-(`targets.check_swe_mix`, run by `python targets.py`).  **Viz**: fields are already in m and m/s; only lx = L * KM
-(m) and dt = frame_dt * KS (s) convert.  `/workspace/targets/swe_m` is the same test set in SI (diagnostic).
-No pretraining equation has a second static, so the lift weights of static slot 1 (SWE's sponge) are untrained:
-`eval.adapt_statics` copies slot 0's into it for SWE (zero-shot, particles and stage B alike).
-
-`targets.sample(name, n, rng)` -> (params, ics, statics); `targets.features(name, params)` -> knob features in [0, 1]
-for k-means; `targets.simulate(name, ics, statics)` -> trajectories; `targets.canonical_graph(name)`. Load a test set
-with `data.adapter.Eq("SWE", "/workspace/targets/swe")` like any training equation.
-
-## Evaluation and active learning
-
-```sh
-python eval.py --run /workspace/runs/pretrain_A [--ckpt .../step_X.eqx]       # -> /workspace/results/<run>_s<step>/results.json, zero_shot.png
-python active.py run --run RUN --ckpt CK --target swe|ap|swe_m|reh:A/eq_0123 --method active|random|generic   # + stage B
-python active.py summary --results /workspace/results/<run>_s<step>        # headline_raw_slot0.png, sims_to_target_raw_slot0.json
-```
-
-Metrics (both scripts, `eval.summarize`): relL2 over frames 1..14 from the IC at frame 0; `raw` = per (trajectory,
-frame, field) in physical units, averaged (the headline, = baselines.py `raw_*`, unit-free); `rel` = the training
-loss's relL2 in normalized space (= baselines.py `rel_*`); `traj` = per (trajectory, field) over all frames and space.
-Active learning writes `<results>/active/<target>_<method>/{history.jsonl, state.npz, DONE}` and resumes from
-`state.npz`.  Pin the checkpoint with `--ckpt` (a resumed run must not pick up a newer one).
-
-## Scratch baseline: FNO trained only on N target simulations
-
-`baselines.py` + `config/scratch.yaml` give the "no prior" curve. The model is the same backbone and interface as the
-pretrained model, trained from scratch on N simulations of one target. `model.dz: 0` makes the conditioning MLP see
-only [Fourier features of t, log T / 4, log L / 4], with no latent table and no encoder. Everything else is as in
-pretraining: FiLM plus 4 spectral banks (151M parameters), IC normalization, presence, mask and coordinate channels,
-the residual on u0, the capped relL2 loss, AdamW (lr 5e-4, cosine to 5%), and batch 16 x 4 query frames.
-
-- **Data.** `gen` writes 512 simulations per target with `targets.write_test(seed=7)` (the test sets use seed 2026)
-  to `<out>/data/{swe,ap}_train/`, in the test-set layout (`params.npy` = knobs). SWE uses the mixed units of
-  `targets.py`. `sweep` refuses training data whose fields, statics, L, frame_dt, frames or rhs differ from the
-  test set's, so data in another unit convention cannot slip through.
-- **Protocol per (target, N, seed).** N in {8, ..., 512}, taken as nested prefixes of the 512. max(2, 10%) of the N
-  are held out for early stopping (which ones depends on the seed). Training runs a cosine schedule (warmup 500)
-  over clip(80 N, 4000, 20000) steps and evaluates val relL2 every 200 steps. It stops after 10 evaluations without
-  a 0.5% improvement, and the model is tested at its best-val step. Seeds 0 and 1 (init, batch order, val choice)
-  at every N.
-- **Metrics.** Computed on the fixed test sets (100 ICs, frames 1..14 from the IC at frame 0), the same as
-  `eval.summarize`. `raw` is the physical relL2 per (IC, frame, field), averaged; it is the headline.
-  `rel` is the training loss's normalized relL2. `traj` is per (IC, field) over all frames. `*_slot0` is the primary
-  field (SWE eta, AP u) and `*_all` is the mean over fields. The AP seed-0 runs predate `traj`, so in the JSON
-  `n` counts the runs behind each mean.
-- **Outputs.** In `/workspace/results/scratch/` (pdebox3), copied to `results/scratch/`:
-  - `{swe,ap}.json`: keyed by N, with mean and std over seeds per metric, plus steps, best step, early stop and
-    train seconds per run;
-  - `meta.json`: settings, units and the persistence baseline;
-  - `scratch_vs_N.png`;
-  - `runs/<target>_N<N>_s<seed>.json`: val curve and test metrics;
-  - `runs/*.npz`: per-term test errors (box only).
-
-```sh
-python baselines.py gen --config config/scratch.yaml                          # ~1 min on a GPU
-python baselines.py sweep --config config/scratch.yaml --target swe [--sizes 8 16] [--seeds 0 1]   # resumable
-python baselines.py summary --config config/scratch.yaml                      # JSON + plot (CPU)
-```
-
-Results: test relL2, mean ± std over seeds. SWE has seed 0 only; AP has seeds 0 and 1 (AP `traj` comes from seed 1).
-Runs took 3–16 min each on the RTX 5090 or RTX PRO 4000 for N ≤ 128. SWE N = 256 and 512 took 49 min each on the
-RTX PRO 4000 (6.8 steps/s, about 19 steps/s on the 5090).
+Same backbone with `dz: 0` (no latent), trained on N simulations of one target, early stopping on 10% held out.
+Test relL2 on the 100-IC test sets (SWE: seed 0, AP: seeds 0 and 1):
 
 | N | SWE raw η | SWE raw all | SWE rel η | AP raw u | AP raw all | AP rel u |
 |---:|---:|---:|---:|---:|---:|---:|
@@ -177,9 +90,5 @@ RTX PRO 4000 (6.8 steps/s, about 19 steps/s on the 5090).
 | 512 | 0.078 | 0.073 | 0.077 | 0.286 ± 0.003 | 0.244 ± 0.007 | 0.215 ± 0.002 |
 | persistence | 2.353 | 1.451 | 2.340 | 1.784 | 1.460 | 1.083 |
 
-- **Overfitting.** Small N overfits hard: train relL2 reaches 0.02–0.04 while val stays at 0.3–1.2. SWE N = 8 never
-  generalizes, so the best-val model is the step-200 one, close to predicting zero (relL2 ≈ 1).
-- **SWE N = 256, 512.** Both ran the full 20000-step cap with val still creeping down (0.080 at the end for 512),
-  so they are mildly under-trained. AP runs stopped early at 2400–10000 steps.
-- **AP u.** Physical u error is above 1 for N ≤ 32: the resting u is near 0, so frames with small ‖u‖ inflate the
-  per-frame ratio.
+Small N overfits a lot (train 0.02-0.04, val 0.3-1.2). SWE N = 256 / 512 hit the 20k step cap so they're a bit
+under-trained. AP raw u goes above 1 for small N because u is near 0 at rest, which blows up the per-frame ratio.
